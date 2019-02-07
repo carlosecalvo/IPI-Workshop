@@ -1,0 +1,376 @@
+IPI R Workshop: The Basics
+========================================================
+author: Carlos Calvo Hernandez
+date: November 28th, 2018
+autosize: true
+
+Basics
+========================================================
+
+You can use R as a calculator:
+```{r}
+1 / 200 * 30
+sin(pi / 2)
+```
+
+Basics (cont.)
+========================================================
+
+You can create objects with "`<-`"
+```{r}
+x <- 3 * 4
+y <- sin(pi) * pi
+```
+This is called an **assignment** statement, all have the form:
+```{r, eval=FALSE}
+object_name <- value
+```
+Naming Conventions
+========================================================
+
+- Object names **MUST** start with a letter
+- Can only contain letters, numbers, `_`, and `.`
+- Object names should be descriptive.   
+```{r, eval=FALSE}
+i.use.periods  
+some_use_snake_case
+otherPeopleUseCamelCase
+And_aFew.People_RENOUNCEconvention
+```
+
+Inspect elements
+========================================================
+Inspect an object by typing its name
+```{r}
+x
+```
+Make another assignment:
+```{r}
+this.is.a.really.long.name <- 2.5
+```
+
+type “this”, press TAB, add characters until you have a unique prefix, then press return.
+
+Inspect elements (rerun commands)
+========================================================
+
+Imagine you need to edit a command, ```this.is.a.really.long.name``` should have a value of 3.5 not 2.5.  
+- Type "this" the press Cmd/Ctrl + $\uparrow$. This list all the commands you've typed that starts with those letters.
+- Use the arrow keys to navigate, then press enter to retype the command.
+- Change 2.5 to 3.5 and rerun.
+
+Inspect elements
+========================================================
+
+Make another assignment
+```{r}
+r.rocks <- 2 ^ 3
+```
+Let's try to inspect it
+```{r, eval=FALSE}
+r.rock
+Error in eval(expr, envir, enclos) : object 'r.rock' not found
+
+R.rocks
+Error in eval(expr, envir, enclos) : object 'R.rocks' not found
+```
+
+Calling functions
+========================================================
+incremental: true
+Functions are called like this:
+```{r, eval=FALSE}
+function_name(arg1 = val1, arg2 = val2, ...)
+```
+
+```{r}
+seq(1,10)
+```
+
+Using Data
+========================================================
+
+```{r, echo=FALSE}
+library(nycflights13)
+library(tidyverse)
+```
+```{r}
+flights
+```
+
+Data Manipulation
+========================================================
+```{r, echo=FALSE}
+library(dplyr)
+```
+The "verbs" from ```dplyr``` package
+```{r, eval=FALSE}
+filter() #Pick observations by their values
+arrange() #Reorder the rows
+select() #Pick variables by their names
+mutate() #Create new variables with functions of existing variables
+summarize() #Collapse many values down to a single summary
+```
+
+These can all be used with 
+```{r, eval = FALSE}
+group_by()
+```
+so they operate on the dataset on a group-by-group basis.
+
+Data Manipulation
+========================================================
+
+All verbs work similarly:
+
+1. First argument is a data frame (e.g. tibble, data.frame, etc.)
+2. The subsequent arguments describe what to do with the data frame, using the variable names (without quotes).
+3. The result is a new data frame.
+
+Data Analysis 
+========================================================
+```{r, echo=FALSE}
+library(nycflights13)
+library(tidyverse)
+library(dbplyr)
+by_dest <- group_by(flights, dest)
+delay <- summarise(by_dest,
+  count = n(),
+  dist = mean(distance, na.rm = TRUE),
+  delay = mean(arr_delay, na.rm = TRUE)
+)
+delay <- filter(delay, count > 20, dest != "HNL")
+
+ggplot(data = delay, mapping = aes(x = dist, y = delay)) +
+  geom_point(aes(size = count), alpha = 1/3) +
+  geom_smooth(se = FALSE)
+```
+
+
+
+Data Analysis (Pipeline)
+========================================================
+source: Data_transformation.R /#5.1 Pipeline/
+
+Data Analysis (Pipeline)
+========================================================
+incremental: true
+A **pipeline** looks like:
+```{r, eval=FALSE}
+delays <- flights %>% 
+  group_by(dest) %>% 
+  summarise(
+    count = n(),
+    dist = mean(distance, na.rm = TRUE),
+    delay = mean(arr_delay, na.rm = TRUE)
+  ) %>% 
+  filter(count > 20, dest != "HNL")
+```
+
+Behind the scenes: ```x %>% f(y)``` turns into ```f(x, y)```, and ```x %>% f(y) %>% g(z)``` turns into ```g(f(x, y), z)``` and so on.
+
+Scripts
+========================================================
+source: Data_transformation.R /#Data Transformation Verbs for Dplyr/
+
+Keyboard shortcuts:
+```{r, eval=FALSE}
+Cmd/Ctrl + Enter #executes current expression
+Cmd/Ctrl + Shift + S #executes the complete script
+Cmd/Ctrl + Shift + P #resends the previously sent chunk from the editor to the console
+```
+
+Tibbles
+========================================================
+Tibbles are data frames, but different from the ```data.frame``` structure from base R. 
+They're part of the ```library(tidyverse)``` 
+```{r}
+library(tidyverse)
+```
+
+To coerce regular data frames into tibbles you can use
+```{r, eval=FALSE}
+as_tibble(iris)
+```
+
+
+Tibbles
+========================================================
+
+```{r}
+tibble(
+  x = 1:5, 
+  y = 1, 
+  z = x ^ 2 + y
+)
+```
+
+```tibble()``` never changes the type of the inputs (e.g. it never converts strings to factors!), it never changes the names of variables, and it never creates row names.
+
+
+Tibble vs. data.frame
+========================================================
+Main differences: printing and subsetting.
+
+- Printing: Tibbles print only the first 10 rows and all the columns that fit on the screen.
+```{r, eval=FALSE}
+tibble(
+  a = lubridate::now() + runif(1e3) * 86400,
+  b = lubridate::today() + runif(1e3) * 30,
+  c = 1:1e3,
+  d = runif(1e3),
+  e = sample(letters, 1e3, replace = TRUE)
+)
+```
+Need more? You can always use RStudio's data viewer 
+```{r, eval=FALSE}
+nycflights13::flights %>% 
+  View()
+```
+
+
+Tibble vs. data.frame
+========================================================
+
+- Printing:
+```{r, echo=FALSE}
+tibble(
+  a = lubridate::now() + runif(1e3) * 86400,
+  b = lubridate::today() + runif(1e3) * 30,
+  c = 1:1e3,
+  d = runif(1e3),
+  e = sample(letters, 1e3, replace = TRUE)
+)
+```
+
+Tibble vs. data.frame
+========================================================
+- Subsetting: To pull out single variables you need the tools: ```$``` and ```[[```. 
+```{r}
+df <- tibble(
+  x = runif(5),
+  y = rnorm(5)
+)
+df
+```
+
+Tibble vs. data.frame
+========================================================
+- Subsetting:
+```{r}
+# Extract by name
+df$x
+df[["x"]]
+```
+```{r}
+# Extract by position
+df[[1]]
+```
+
+Tibble vs. data.frame
+========================================================
+incremental: true
+- Usage in a pipe:
+```{r}
+df %>% .$x
+df %>% .[["x"]]
+```
+
+
+- Compared to a data.frame, tibbles are more strict: they never do partial matching, and they will generate a warning if the column you are trying to access does not exist.
+
+Tibbles interacting with older code
+========================================================
+- Some older functions don’t work with tibbles. If you encounter one of these functions, use ```as.data.frame()``` to turn a tibble back to a ```data.frame```.
+
+- The main reason that some older functions don’t work with tibble is the [ function. We don’t use [ much in this book because ```dplyr::filter()``` and ```dplyr::select()``` allow you to solve the same problems with clearer code
+
+- With base R data frames, [ sometimes returns a data frame, and sometimes returns a vector. With tibbles, [ always returns another tibble.
+
+Importing Data
+========================================================
+- The easiest way to load flat files is with the **readr** package, it's part of the package **tidyverse**
+- Most used readr's functions are:
+  - read_csv(), read_csv2(), read_tsv(), and read_delim().
+  - read_fwf() reads fixed width files. read_table() reads a common variation of fixed width files where columns are separated by white space.
+  - read_log() reads Apache style log files.
+
+Importing Data (Readr vs Base R)
+========================================================
+
+I like to use ```read_csv()``` rather than the base R function ```read.csv()``` because **readr** functions:
+  - Typically are much faster than their base equivalents
+  - Produce tibbles, they don’t convert character vectors to factors, use row names, or munge the column names.
+  - Are more reproducible.
+  
+Importing SQL Data
+========================================================
+To connect to a SQL server you need two packages
+```{r}
+require(DBI)
+require(RPostgreSQL)
+```
+Then, the first thing is you have to let R know what's the structure of the server by specifying the driver (e.g. SQlite, SQL, PostgreSQL, etc.)
+```{r, eval=FALSE}
+m <- dbDriver("driver name")
+```
+By now, you need to have the particular details of the server and create the connection on R
+```{r, eval=FALSE}
+con <- dbConnect(m, host="Name or IP address", port="number", user="username", password="password", dbname="database name")
+```
+
+Querying SQL Data
+========================================================
+
+When the connection is setup, then the server has to be queried for the data
+```{r, eval=FALSE}
+rs <- dbSendQuery(con, "SELECT * FROM table.name WHERE variable BETWEEN 'value1' AND 'value2'")
+
+```
+This sends the query and "downloads" the data to R, but doesn't assign it to any R structure. ```fetch()``` records the queried data into a data frame.
+```{r, eval=FALSE}
+df <- fetch(rs, n = -1)
+```
+**n = -1** means that all rows queried showed by assigned to ```df```
+```{r, eval=FALSE}
+dbHasCompleted(rs)
+```
+returns TRUE if all the data queried has being assigned to a structure in R
+
+
+Importing Pecan Street Data
+========================================================
+To import the Pecan Street Dataport datasets you need the following script
+```{r, eval=FALSE}
+require(DBI)
+require(RPostgreSQL)
+m <- dbDriver("PostgreSQL")
+  
+con <- dbConnect(m, host="dataport.cloud", port="5434", user="Vr5SmRn96HF5", password="HCzasJwPfMjr", dbname="postgres")
+rs <- dbSendQuery(con, "SELECT * FROM university.audits_2011 WHERE date_of_audit BETWEEN '01-01-2013' AND '12-31-2013'")
+df <- dbFetch(rs, n = -1)
+dbHasCompleted(rs)
+```
+You should use your username and password from the website, but everything else should work the same.
+
+Importing Pecan Street Data (Example)
+========================================================
+```{r, echo=FALSE}
+require(DBI)
+require(RPostgreSQL)
+m <- dbDriver("PostgreSQL")
+  
+con <- dbConnect(m, host="dataport.cloud", port="5434", user="Vr5SmRn96HF5", password="HCzasJwPfMjr", dbname="postgres")
+rs <- dbSendQuery(con, "SELECT * FROM university.audits_2011 WHERE date_of_audit BETWEEN '01-01-2013' AND '12-31-2013'")
+df <- dbFetch(rs, n = 4)
+df
+```
+
+Need More?
+========================================================
+  
+![alt text](wickham.png)
+
+***
+  
+- [R for Data Science by Hadley Wickham & Garret Grolemund](https://r4ds.had.co.nz/index.html)
