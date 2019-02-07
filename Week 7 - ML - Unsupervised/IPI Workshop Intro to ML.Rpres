@@ -1,0 +1,438 @@
+IPI Workshop - Machine Learning: Unsupervised Learning Algorithms
+========================================================
+author: Carlos Calvo Hernandez
+date: January 30th, 2019
+autosize: true
+
+Overview of Machine Learning
+========================================================
+```{r, echo=FALSE}
+require(tidyverse)
+require(knitr)
+
+```
+
+- There are four general "types" of machine learning algorithms.
+  
+  1. Supervised learning (SML): the learning algorithm is presented with labelled example inputs, where the labels indicate the desired output.
+  2. Unsupervised learning (UML): no labels are provided, and the learning algorithm focuses solely on detecting structure in unlabeled input data.
+  3. Semi-supervised learning: approaches that use labelled data to inform unsupervised learning on the unlabeled data to identify and annotate new classes in the data set (also called novelty detection).
+  4. Reinforcement learning, the learning algorithm performs a task using feedback from operating in a real of synthetic environment.
+
+
+Unsupervised Learning (UML)
+========================================================
+- No labels are provided, and the algorithm focuses solely on detecting structure in unlabeled input data.
+
+  1. Clustering: find homogeneous subgroups within the data; the grouping is based on distance between observations.
+
+  2. Dimensionality reduction: identify patterns in the features of the data. 
+  
+- Types of UML: clustering, pre-processing, principal component analysis, etc.
+
+k-means clustering
+========================================================
+
+- Partitioning **n** observations into a fixed number of **k** homogeneous clusters. 
+
+```{r, eval=FALSE}
+stats::kmeans(x, centers = 3, nstart = 10)
+```
+
+- Where:
+  - **x** is a numeric data matrix
+  - **centers** is the pre-defined number of clusters
+  - **nstart** tells R to repeat the algorithm this number of times in order to improve the returned model.
+
+How does k-means work
+========================================================
+- The algorithm comprises three steps:
+  
+  1. Initialization: randomly assigns class membership.
+  2. Iteration: calculates the center of each subgroup as the average position of the members of that subgroup and the assigns each observation to the subgroup of its nearest center.
+  3. Termination: repeats iteration until no element changes its membership.
+  
+k-means in practice
+========================================================
+- We`re gonna use the **iris** data set.
+
+```{r, echo=FALSE}
+
+kable(head(iris), "html")
+```
+
+k-means in practice
+========================================================
+
+- Suppose we are interested on petal and sepal length only. We'll create a data set and name it **x**.
+
+```{r}
+x <- as.tibble(iris) %>% select(contains("Length"))
+head(x)
+```
+
+k-means in practice
+========================================================
+
+- Run the k-means algorithm and save the results in variable **cl**.
+
+```{r}
+(cl <- kmeans(x, 3, nstart = 10))
+```
+
+k-means in practice
+========================================================
+
+- The element **cluster** contains the membership of each element in the data.
+
+```{r, out.width = "90%", fig.asp = 0.55, fig.align = "center"}
+plot(x, col = cl$cluster)
+```
+
+k-means model selection
+========================================================
+
+- Due to the random initialization, one can obtain different clustering results.
+- When the algorithm is run multiple times, the one that generates the smallest total within cluster sum of squares is selected.
+
+```{r, echo=FALSE, out.width = "70%", fig.asp = 0.65, fig.align = "center"}
+set.seed(42)
+xr <- matrix(rnorm(prod(dim(x))), ncol = ncol(x))
+cl1 <- kmeans(xr, centers = 3, nstart = 1)
+cl2 <- kmeans(xr, centers = 3, nstart = 1)
+diffres <- cl1$cluster != cl2$cluster
+par(mfcol = c(1, 2))
+plot(xr, col = cl1$cluster, pch = ifelse(diffres, 19, 1))
+plot(xr, col = cl2$cluster, pch = ifelse(diffres, 19, 1))
+```
+
+Number of clusters
+========================================================
+
+```{r, fig.asp = 0.7, fig.align = "center"}
+ks <- 1:5
+tot_within_ss <- sapply(ks, function(k) {
+    cl <- kmeans(x, k, nstart = 10)
+    cl$tot.withinss
+})
+plot(ks, tot_within_ss, type = "b")
+```
+
+Hierarchical clustering
+========================================================
+
+- This algorithm creates a hierarchy within objects and groups "similar" objects into the same cluster. The endpoint is a set of clusters where the objects within each cluster are broadly similar to each other.
+
+```{r, eval=FALSE}
+stats::hclust(d)
+```
+
+- Where **d** is a dissimilarity structure produced by **dist**
+
+How does hierarchical clustering work
+========================================================
+
+- The algorithm comprises three steps:
+  
+  1. Initialization: assigns each of the n points its own cluster.
+  2. Iteration: find the two nearest clusters, and join them together, leading to n-1 clusters. Repeat.
+  3. Termination: all observations are grouped within a single cluster.
+  
+- The results of a hierarchical clustering are typically visualized along a **dendogram**, where the distance between clusters is proportional to the branch length.
+
+Hierarchical clustering in practice
+========================================================
+
+- Create the **distance matrix** of the **iris** data set.
+
+```{r}
+d <- dist(iris[, 1:4])
+d
+```
+
+Hierarchical clustering in practice
+========================================================
+
+- Run the **hclust** function.
+
+```{r, eval=FALSE}
+hcl <- hcl(d)
+hcl
+```
+
+```{r, echo=FALSE}
+d <- dist(iris[, 1:4])
+hcl <- hclust(d)
+hcl
+```
+
+Hierarchical clustering in practice
+========================================================
+
+- Plot the **dendogram**
+
+```{r, fig.align = "center"}
+plot(hcl)
+```
+
+Defining clusters
+========================================================
+
+- Without **cutting** the tree, the method is not really helpful.
+- The function **cutree** allows us to choose a height or number of clusters at which to cut our dendogram.
+```{r, eval=FALSE}
+#Cut at a specific height
+cutree(hcl, h = 2.5)
+
+#Cut to get a specific number of clusters
+cutree(hcl, k = 2)
+```
+
+Defining clusters (example)
+========================================================
+- Using our **iris** example.
+
+```{r, fig.align = "center"}
+plot(hcl)
+abline(h = 3.9, col = "red")
+```
+
+Defining clusters (example)
+========================================================
+
+- Now making sure **cutree** does what we think.
+
+```{r}
+cutree(hcl, k = 3)
+```
+
+Defining clusters (example)
+========================================================
+
+- Now making sure **cutree** does what we think.
+
+```{r}
+cutree(hcl, k = 3.9)
+```
+
+Defining clusters (example)
+========================================================
+
+- Are these two "cuts" the same?
+
+```{r}
+identical(cutree(hcl, k = 3), cutree(hcl, h = 3.9))
+
+```
+
+Pre-processing
+========================================================
+
+- Many ML methods are scale-sensitive. 
+- A typical way to deal with this issue is to scale data prior to applying learning methods.
+- In R scaling scaling is done with:
+
+```{r, eval=FALSE}
+scale(x)
+```
+
+- Where **x** is a numeric matrix-like object.
+
+Pre-processing (example)
+========================================================
+- Using the **mtcars** data set. First, check the scales of the variables.
+```{r}
+colMeans(mtcars)
+```
+
+Pre-processing (example)
+========================================================
+
+- Let's run a hierarchical cluster analysis while scaling the data.
+
+```{r, fig.asp = 0.7, fig.align = "center"}
+hcl1 <- hclust(dist(scale(mtcars)))
+plot(hcl1)
+```
+
+Pre-processing (example)
+========================================================
+
+- Now let's compare with the unscaled data:
+
+```{r, echo=FALSE, fig.align = "center", fig.width = 14}
+hcl1 <- hclust(dist(mtcars))
+hcl2 <- hclust(dist(scale(mtcars)))
+par(mfcol = c(1, 2))
+plot(hcl1, main = "original data")
+plot(hcl2, main = "scaled data")
+```
+
+Principal Component Analysis (PCA)
+========================================================
+
+- It is one of the so-called **dimensionality reduction** techniques (as scaling).
+- Basic principle:
+  - transform data into a new space that summarizes the properties of the whole data set.
+  
+- The basic uses of dimensionality reduction techniques are:
+  - find structures in the features of the data.
+  - pre-processing for other ML algorithms
+  - visualization aid.
+  
+How does PCA work?
+========================================================
+
+- PCA transforms the original n-dimensional data into a new n-dimensional space.
+  - The new dimensions (principal components) are linear combinations of the original data.
+  - Along these components, the data expresses most of its variability along the first, then the second, etc.
+  - Principal components are orthogonal to each other.
+  
+```{r, eval=FALSE}
+prcomp(x)
+```
+
+- Where **x** is a data set.
+
+PCA (example)
+========================================================
+- First, Let's explore the **iris** data.
+```{r, fig.align = "center"}
+pairs(iris[, -5], col = iris[, 5], pch = 19)
+```
+
+PCA (example)
+========================================================
+- It's hard to visualize the three groups along the four dimensions in the data. Let's use PCA.
+
+```{r}
+irispca <- prcomp(iris[, -5])
+summary(irispca)
+```
+
+- This summary shows that PC1 retains 92% of the variability in the data.
+
+PCA visualization
+========================================================
+
+- A **biplot** plots all original points rotated along the first two PCs as well as the original features as vectors along the same PCs. 
+  - Feature vectors that are in the same direction in PC space are also correlated in the original data space.
+  
+- IMPORTANT: When using PCA remember that the proportion of variance explained along the PCs might only account for an insufficient proportion of variance to be relevant on their own.
+
+PCA visualization
+========================================================
+
+```{r, fig.align = "center"}
+biplot(irispca)
+```
+
+PCA visualization
+========================================================
+- Other useful visualizations:
+
+```{r, fig.align = "center", fig.width = 12, fig.height = 6.5}
+par(mfcol = c(1, 2))
+plot(irispca$x[, 1:2], col = iris$Species)
+plot(irispca$x[, 3:4], col = iris$Species)
+```
+
+PCA parameters
+========================================================
+
+- There are two other parameters of importance in a PCA. **center** and **scale**.
+  - The default values are **center = TRUE** and **scale = FALSE**.
+  
+- Center: indicates whether the variables should be centered at zero.
+- Scale: indicates whether the variables should be scaled to have unit variance before doing the analysis.
+
+PCA parameters: Scale
+========================================================
+```{r, fig.align = "center", fig.width = 12, fig.height = 6}
+par(mfrow = c(1, 2))
+biplot(prcomp(mtcars, scale = FALSE), main = "No scaling")  ## 1
+biplot(prcomp(mtcars, scale = TRUE), main = "With scaling") ## 2
+```
+
+PCA parameters: Scale
+========================================================
+```{r, fig.align = "center", fig.width = 12, fig.height = 6, echo=FALSE}
+par(mfrow = c(1, 2))
+biplot(prcomp(mtcars, scale = FALSE), main = "No scaling")  ## 1
+biplot(prcomp(mtcars, scale = TRUE), main = "With scaling") ## 2
+```
+- Without scaling **disp** and **hp** are features with the highest units of measurement. Scaling removes this effect.
+
+Final comments on PCA
+========================================================
+- PCA will drop any observation containing missing values.
+- When using categorical data, to avoid the impression of "distance" between the elements of the category it is preferable to use dummy variables for each category.
+- It is possible to impute missing values. We will see more examples when we go over supervised machine learning.
+
+========================================================
+class: center, middle
+incremental: true
+
+# **Ready for the most**
+# **mind-blowing technique in**
+# **Unsupervised Machine Learning?**
+
+## t-Distributed Stochastic Neighbour Embedding
+
+- What???? ;)
+
+
+t-Distributed Stochastic Neighbour Embedding (t-SNE)
+========================================================
+
+- It is a non-linear dimensionality reduction technique.
+  - different regions of the data space will be subjected to different transformations.
+  
+- t-SNE will compress small distances, thus bringing close neighbours together, and will ignore large distances. 
+- It is particularly well suited for **very high dimensional data**.
+
+- We can use the `Rtsne` function from the **Rtsne** package.
+
+t-SNE in practice
+========================================================
+- First we need to remove any duplicated entry from the data set **iris**.
+```{r, fig.align = "center", fig.width = 9, fig.height = 5}
+library("Rtsne")
+uiris <- unique(iris[, 1:5])
+iristsne <- Rtsne(uiris[, 1:4])
+plot(iristsne$Y, col = uiris$Species)
+```
+
+t-SNE in practice
+========================================================
+- As with PCA, the data can be scaled and centered before running t-SNE.
+
+- The algorithm is stochastic and will produce different results at each repetition.
+
+- t-SNE has two important parameters:
+  1. Perplexity: balances global and local aspects of the data.
+  2. Iterations: number of iterations before the clustering is stopped.
+  
+t-SNE parameters
+========================================================
+
+- This figure shows how perplexity and the number of repetitions can influence the embedding.
+
+![](tsnesplots-1.png)
+
+t-SNE parameters
+========================================================
+
+- Below we can compare the same data with PCA (left) and t-SNE (right).
+
+![](tsneex-1.png)
+
+More t-SNE?
+========================================================
+
+- t-SNE is incredibly versatile and useful, but can also be quite "tricky" to interpret.
+
+- More resources:
+
+  - [How to use t-SNE effectively](https://distill.pub/2016/misread-tsne/)
+  - [Laurens van der Maaten - creator](https://lvdmaaten.github.io/tsne/)
