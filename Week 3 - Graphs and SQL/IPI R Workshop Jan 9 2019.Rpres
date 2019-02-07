@@ -1,0 +1,250 @@
+IPI R Workshop: Graphs and SQL
+========================================================
+author: Carlos Calvo Hernandez
+date: January 9, 2019
+autosize: true
+
+Prerequisites
+========================================================
+- We're gonna use these libraries:
+```{r}
+library(tidyverse)
+library(DBI)
+library(RPostgreSQL)
+```
+```{r, echo=FALSE}
+options(tibble.print_max = 4, tibble.print_min = 3)
+```
+
+
+Plots? ggplot2 can help
+========================================================
+- What does **ggplot2** stand for? A **Grammar of Graphics**!
+```{r, eval=FALSE}
+ggplot(data = <Data>) +
+  <Geom_function>(
+    mapping = aes(<Mappings>),
+    stat = <Stat>,
+    position = <Position>
+  ) +
+  <Coordinate_function> +
+  <Facet_function>
+```
+
+
+First: Working with ggplot2
+========================================================
+- Download and unzip the Gapminder data we are going to use.
+- link: [https://monashdatafluency.github.io/r-intro-2/r-intro-2-files.zip](https://monashdatafluency.github.io/r-intro-2/r-intro-2-files.zip)
+
+```{r}
+#Lets load the data
+geo <- read_csv("r-intro-2-files/geo.csv")
+gap <- read_csv("r-intro-2-files/gap-minder.csv")
+gap_geo <- left_join(gap, geo, by= "name")
+```
+
+First: Working with ggplot2
+========================================================
+- Producing a plot with **ggplot2** requires **three** things:
+  1. A data frame containing our data.
+  2. How the columns of the data frame can be translated into positions, colors, sizes, and shapes of graphical elements (“aesthetics”).
+  3. The actual graphical elements to display (“geometric objects”).
+  
+The Gapminder Data
+========================================================
+```{r}
+gap_geo
+```
+
+
+ggplot2: Our first ggplot
+========================================================
+```{r, out.width = "80%", fig.asp = 0.7}
+ggplot(gap_geo, aes(x= year, y=life_exp)) +
+  geom_point()
+```
+
+
+What does everything mean???
+========================================================
+```{r, eval=FALSE}
+ggplot(gap_geo, aes(x= year, y=life_exp)) +
+  geom_point()
+```
+- **ggplot** and **aes** sets up the basics of how to represent the data.
+- **aes** defines the aesthetics: x and y position, color, size, etc.
+- **geom** is where each layer of the graphic reside
+
+More aesthetics
+========================================================
+```{r, out.width = "80%", fig.asp = 0.7}
+ggplot(gap_geo, aes(x= year, y=life_exp, color=region, size=population)) +
+  geom_point()
+```
+
+More geoms
+========================================================
+```{r, out.width = "80%", fig.asp = 0.7}
+ggplot(gap_geo, aes(x= year, y=life_exp, color=region, size=population)) +
+  geom_line()
+```
+
+More geoms (cont.)
+========================================================
+```{r, out.width = "80%", fig.asp = 0.7}
+ggplot(gap_geo, aes(x= year, y=life_exp, group=year)) +
+  geom_boxplot()
+```
+
+Not only more geoms... Multiple geoms
+========================================================
+```{r, out.width = "80%", fig.asp = 0.7}
+ggplot(gap_geo, aes(x= year, y=life_exp)) +
+  geom_point() +
+  geom_smooth()
+```
+
+Multiple aesthetics
+========================================================
+```{r, out.width = "80%", fig.asp = 0.7}
+ggplot(gap_geo, aes(x= year, y=life_exp)) +
+  geom_line(aes(group=name)) +
+  geom_smooth(aes(color=oecd))
+```
+
+Highlighting subsets
+========================================================
+```{r}
+(gap_australia <- filter(gap_geo, name == "Australia"))
+```
+
+Highlighting subsets
+========================================================
+```{r, out.width = "80%", fig.asp = 0.5}
+ggplot(gap_geo, aes(x= year, y=life_exp, group=name)) +
+  geom_line() +
+  geom_line(data=gap_australia, color="red", size=2)
+```
+
+Fine-tuning a plot
+========================================================
+- Add **labs** to adjust the labels
+```{r, out.width = "80%", fig.asp = 0.48}
+ggplot(gap_geo, aes(x=year, y=life_exp)) +
+  geom_point() +
+  labs(x = "Year", y = "Life Expectancy", title = "Gapminder")
+```
+
+Fine-tuning a plot (even more)
+========================================================
+- Add **coord_cartesian** sets the limits to x and y
+```{r, out.width = "80%", fig.asp = 0.45}
+ggplot(gap_geo, aes(x=year, y=life_exp)) +
+  geom_point() +
+  coord_cartesian(ylim=c(0,90))
+```
+
+Faceting
+========================================================
+
+```{r, out.width = "80%", fig.asp = 0.6}
+ggplot(gap_geo, aes(x=year, y=life_exp, group=name)) +
+  geom_line() +
+  facet_wrap(~ region)
+```
+
+More options?
+========================================================
+Go to [The R Graph Gallery](http://www.r-graph-gallery.com)
+
+========================================================
+class: center, middle, inverse
+
+# Now, let us move on to more boring things :(
+
+Connecting to SQL Data
+========================================================
+To connect to a SQL server you need two packages
+```{r}
+require(DBI)
+require(RPostgreSQL)
+```
+- DBI: Database Interface
+- RPostgreSQL: Specific for PostgreSQL servers (e.g., Pecan Street Data)
+
+Importing SQL Data
+========================================================
+Then, the first thing is you have to let R know what's the structure of the server by specifying the driver (e.g. SQlite, SQL, PostgreSQL, etc.)
+```{r, eval=FALSE}
+m <- dbDriver("driver name")
+```
+By now, you need to have the particular details of the server and create the connection on R
+```{r, eval=FALSE}
+con <- dbConnect(m, host="Name or IP address", port="number", user="username", password="password", dbname="database name")
+```
+
+Querying SQL Data
+========================================================
+When the connection is setup, then the server has to be queried for the data
+```{r, eval=FALSE}
+rs <- dbSendQuery(con, "SELECT * FROM table.name WHERE variable BETWEEN 'value1' AND 'value2'")
+```
+This sends the query and "downloads" the data to R, but doesn't assign it to any R structure. ```fetch()``` records the queried data into a data frame.
+```{r, eval=FALSE}
+df <- fetch(rs, n = -1)
+```
+```{r, eval=FALSE}
+dbHasCompleted(rs)
+```
+returns TRUE if all the data queried has being assigned to a structure in R.
+
+
+Importing Pecan Street Data
+========================================================
+To import the Pecan Street Dataport datasets you need the following script.
+```{r, eval=FALSE}
+require(DBI)
+require(RPostgreSQL)
+m <- dbDriver("PostgreSQL")
+  
+con <- dbConnect(m, host="dataport.cloud", port="5434", user="Vr5SmRn96HF5", password="HCzasJwPfMjr", dbname="postgres")
+rs <- dbSendQuery(con, "SELECT * FROM university.audits_2011 WHERE date_of_audit BETWEEN '01-01-2013' AND '12-31-2013'")
+df <- dbFetch(rs, n = -1)
+dbHasCompleted(rs)
+```
+You should use your username and password from the website, but everything else should work the same.
+
+Importing Pecan Street Data (Example)
+========================================================
+```{r, echo=FALSE}
+require(DBI)
+require(RPostgreSQL)
+m <- dbDriver("PostgreSQL")
+  
+con <- dbConnect(m, host="dataport.cloud", port="5434", user="Vr5SmRn96HF5", password="HCzasJwPfMjr", dbname="postgres")
+rs <- dbSendQuery(con, "SELECT * FROM university.audits_2011 WHERE date_of_audit BETWEEN '01-01-2013' AND '12-31-2013'")
+(df <- dbFetch(rs, n = 2))
+```
+
+Importing Pecan Street Data (Example, alternative syntax)
+========================================================
+```{r, eval=FALSE}
+rs <- dbSendQuery(con, "SELECT * FROM university.audits_2011 WHERE date_of_audit BETWEEN '01-01-2013' AND '12-31-2013'")
+while(!dbHasCompleted(rs)){
+  chunk <- dbFetch(rs, 100)
+  write_csv(chunk, path = audits_2011, append = TRUE, col_names = TRUE, na = " ")
+}
+dbDisconnect(con)
+```
+
+Useful functions to query databases
+========================================================
+```{r, eval=FALSE}
+dbListTables(con) #Lists the tables in the server
+dbListObjects(con) #Lists the objects accesible through this connection
+dbListFields(con, "audits_2011") #Lists the fields in the specified table
+dbGetQuery(con, "SELECT * FROM university.audits_2011 WHERE date_of_audit BETWEEN '01-01-2013' AND '12-31-2013'", n = 30) #Send query, retrieve result, and clear result set
+```
+
+
