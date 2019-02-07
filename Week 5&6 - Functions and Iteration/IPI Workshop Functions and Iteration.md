@@ -1,0 +1,1400 @@
+IPI Workshop Functions and Iteration
+========================================================
+author: Carlos Calvo Hernandez
+date: January 24th, 2019
+autosize: true
+
+Functions
+========================================================
+
+
+- Functions allow you to automate common tasks in a more powerful and general way than copy-and-pasting.
+- Writing a function has three big advantages over using copy-and-paste:
+
+    1. You can give a function an evocative name that makes your code easier to understand.
+
+    2. As requirements change, you only need to update code in one place, instead of many.
+
+    3. You eliminate the chance of making incidental mistakes when you copy and paste (i.e. updating a variable name in one place, but not in another).
+
+When to write a function?
+========================================================
+
+- Whenever you’ve copied and pasted a block of code more than twice.
+
+```r
+df <- tibble::tibble(
+  a = rnorm(10),
+  b = rnorm(10),
+  c = rnorm(10),
+  d = rnorm(10)
+)
+
+df$a <- (df$a - min(df$a, na.rm = TRUE)) / 
+  (max(df$a, na.rm = TRUE) - min(df$a, na.rm = TRUE))
+df$b <- (df$b - min(df$b, na.rm = TRUE)) / 
+  (max(df$b, na.rm = TRUE) - min(df$a, na.rm = TRUE))
+df$c <- (df$c - min(df$c, na.rm = TRUE)) / 
+  (max(df$c, na.rm = TRUE) - min(df$c, na.rm = TRUE))
+df$d <- (df$d - min(df$d, na.rm = TRUE)) / 
+  (max(df$d, na.rm = TRUE) - min(df$d, na.rm = TRUE))
+```
+
+When to write a function? (Cont.)
+========================================================
+incremental: true
+- Did you catch the mistake?
+- There's an error on `df$b`, forgot to change an `a` to a `b
+- Extracting repeated code out into a function is a good idea because it prevents you from making this type of mistake.
+
+Writing functions: Basic steps
+========================================================
+
+- Analyze the code. How many inputs does it have?
+
+```r
+df$a <- df$a - min(df$a, na.rm = TRUE) /
+  (max(df$a, na.rm = TRUE) - min(df$a, na.rm = TRUE))
+```
+
+- This code only has 1 input.  *df$a*
+
+- To make the inputs more clear, it’s a good idea to rewrite the code using temporary variables with general names:
+
+
+
+Writing functions: Basic steps
+========================================================
+
+```r
+x <- df$a
+x - min(x, na.rm = TRUE) / (max(x, na.rm = TRUE) - min(x, na.rm = TRUE))
+```
+
+```
+ [1] 0.67177502 0.40782071 0.63274203 0.28604209 0.00000000 0.59979318
+ [7] 0.08648774 0.70920874 1.00000000 0.89172928
+```
+- Check for repetition in the code.
+
+```r
+rng <- range(x, na.rm = TRUE)
+(x - rng[1]) / (rng[2] - rng[1])
+```
+
+```
+ [1] 0.67177502 0.40782071 0.63274203 0.28604209 0.00000000 0.59979318
+ [7] 0.08648774 0.70920874 1.00000000 0.89172928
+```
+
+Writing functions: Basic steps
+========================================================
+- Our new function could look like this:
+
+
+```r
+rescale01 <- function(x) {
+  rng <- range(x, na.rm = TRUE)
+  (x - rng[1]) / (rng[2] - rng[1])
+}
+```
+
+```r
+rescale01(c(0, 5, 10))
+```
+
+```
+[1] 0.0 0.5 1.0
+```
+
+Writing functions: Basic steps
+========================================================
+
+- There are three key steps to creating a new function:
+
+    1. Pick a name for the function. Here I’ve used rescale01 because this function rescales a vector to lie between 0 and 1.
+
+    2. List the inputs, or arguments, to the function inside function. Here we have just one argument. If we had more the call would look like function(x, y, z).
+
+    3. Place the code in the body of the function, a { block that immediately follows function(...).
+
+
+- It’s easier to start with working code and turn it into a function; it’s harder to create a function and then try to make it work.
+
+Writing functions: Basic steps
+========================================================
+- At this point we can check the function with different values:
+
+```r
+rescale01(c(-10, 0, 10))
+```
+
+```
+[1] 0.0 0.5 1.0
+```
+
+```r
+rescale01(c(1, 2, 3, NA, 5))
+```
+
+```
+[1] 0.00 0.25 0.50   NA 1.00
+```
+
+
+Writing functions: Basic steps
+========================================================
+- We can simplify the original example now that we have a function:
+
+
+```r
+df$a <- rescale01(df$a)
+df$b <- rescale01(df$b)
+df$c <- rescale01(df$c)
+df$d <- rescale01(df$d)
+```
+
+```r
+df$a
+```
+
+```
+ [1] 0.67177502 0.40782071 0.63274203 0.28604209 0.00000000 0.59979318
+ [7] 0.08648774 0.70920874 1.00000000 0.89172928
+```
+
+Writing functions: Basic steps
+========================================================
+incremental: true
+- Another advantage of functions is that if our requirements change, we only need to make the change in one place. 
+- For example, we might discover that some of our variables include infinite values, and **rescale01()** fails:
+
+
+```r
+x <- c(1:10, Inf)
+rescale01(x)
+```
+
+```
+ [1]   0   0   0   0   0   0   0   0   0   0 NaN
+```
+
+
+Writing functions: Basic steps
+========================================================
+- Because we’ve extracted the code into a function, we only need to make the fix in one place:
+
+```r
+rescale01 <- function(x) {
+  rng <- range(x, na.rm = TRUE, finite = TRUE)
+  (x - rng[1]) / (rng[2] - rng[1])
+}
+rescale01(x)
+```
+
+```
+ [1] 0.0000000 0.1111111 0.2222222 0.3333333 0.4444444 0.5555556 0.6666667
+ [8] 0.7777778 0.8888889 1.0000000       Inf
+```
+
+Functions are for humans and computers!
+========================================================
+
+- Names are important (for humans, at least), so ideally the name of the function should be short.
+- It's better to be clear than short.
+- Generally, function names should be verbs, and arguments should be nouns.
+
+
+```r
+# Too short
+f()
+
+# Not a verb, or descriptive
+my_awesome_function()
+
+# Long, but clear
+impute_missing()
+collapse_years()
+```
+
+
+Be consistent...
+========================================================
+- Cases:  ```snake_case()```,  ```camelCase()```, or  ```another.thing()```.
+- Names:
+
+```r
+# Good
+input_select()
+input_checkbox()
+input_text()
+
+# Not so good
+select_input()
+checkbox_input()
+text_input()
+```
+- Everything!!
+
+
+Comments and more
+========================================================
+- Use **#** to insert comments. Use **-** or **=** to subset the code into chunks.
+
+```r
+# Load data --------------------------------------
+
+# Plot data --------------------------------------
+
+# Start analysis =================================
+```
+- RStudio provides a keyboard shortcut to create these headers (Cmd/Ctrl + Shift + R), and will display them in the code navigation drop-down at the bottom-left of the editor.
+
+Conditional execution: If statements
+========================================================
+- An if statement allows you to conditionally execute code.
+
+```r
+if (condition) {
+  # code executed when condition is TRUE
+} else {
+  # code executed when condition is FALSE
+}
+```
+- Help on **if** surround it with backticks **?'if'**
+
+Conditional execution: If statements
+========================================================
+- Example: a simple function to get a vector describing whether or not each element of a vector is named
+
+```r
+has_name <- function(x) {
+  nms <- names(x)
+  if (is.null(nms)) {
+    rep(FALSE, length(x))
+  } else {
+    !is.na(nms) & nms != ""
+  }
+}
+```
+- Standard return rule: a function returns the last value that it computed.
+
+Conditional execution: Conditions
+========================================================
+
+- The **condition** must evaluate to either **TRUE** or **FALSE**. If it’s a vector, you’ll get a warning message; if it’s an **NA**, you’ll get an error.
+
+```r
+if (c(TRUE, FALSE)) {}
+#> Warning in if (c(TRUE, FALSE)) {: the condition has length > 1 and only the
+#> first element will be used
+#> NULL
+
+if (NA) {}
+#> Error in if (NA) {: missing value where TRUE/FALSE needed
+```
+- You can use **||** (or) and **&&** (and) to combine multiple logical expressions.
+
+Conditional execution: Multiple conditions
+========================================================
+
+- You can chain multiple **if** statements together:
+
+```r
+if (this) {
+  # do that
+} else if (that) {
+  # do something else
+} else {
+  # 
+}
+```
+
+Conditional execution: Multiple conditions
+========================================================
+
+- Consider rewriting if you end up with a long series of **if**:
+
+```r
+function(x, y, op) {
+   switch(op,
+     plus = x + y,
+     minus = x - y,
+     times = x * y,
+     divide = x / y,
+     stop("Unknown op!")
+   )
+}
+```
+- **switch()** allows you to evaluate selected code based on position or name.
+
+Code style
+========================================================
+
+- Both **if** and **function** should be followed by **{}**.
+- The contents indented by two spaces.
+- Opening **{** should never go on its own line and should always be followed by a new line.
+- Closing **}** should always go on its own line, unless its followed by  **else**.
+- Always indent code inside **{}**.
+
+Code style (examples)
+========================================================
+-
+
+```r
+# Good
+if (y < 0 && debug) {
+  message("Y is negative")
+}
+
+if (y == 0) {
+  log(x)
+} else {
+  y ^ x
+}
+```
+***
+-
+
+```r
+# Bad
+if (y < 0 && debug)
+message("Y is negative")
+
+if (y == 0) {
+  log(x)
+} 
+else {
+  y ^ x
+}
+```
+
+Function arguments
+========================================================
+- Functions have two broad sets of arguments:
+      
+    1. data
+    2. details
+    
+- Generally, data arguments come first. Detail arguments should go on the end, and usually have default values.
+- Default values should almost always be the most common value.
+- Default values are specified in the same way functions are called with a named argument.
+
+Function arguments (example)
+========================================================
+
+```r
+# Compute confidence interval around mean using normal approximation
+mean_ci <- function(x, conf = 0.95) {
+  se <- sd(x) / sqrt(length(x))
+  alpha <- 1 - conf
+  mean(x) + se * qnorm(c(alpha / 2, 1 - alpha / 2))
+}
+x <- runif(100)
+mean_ci(x)
+```
+
+```
+[1] 0.4449394 0.5583547
+```
+
+```r
+mean_ci(x, conf = 0.99)
+```
+
+```
+[1] 0.4271205 0.5761736
+```
+
+Checking values
+========================================================
+- To avoid calling functions with invalid inputs, it's useful to make contrainst explicit.
+- Imagine you've written these functions:
+
+```r
+wt_mean <- function(x, w) {
+  sum(x * w) / sum(w)
+}
+wt_var <- function(x, w) {
+  mu <- wt_mean(x, w)
+  sum(w * (x - mu) ^ 2) / sum(w)
+}
+wt_sd <- function(x, w) {
+  sqrt(wt_var(x, w))
+}
+```
+
+Checking values (cont.)
+========================================================
+incremental: true
+- What happens if **x** and **w** aren't the same length?
+
+```r
+wt_mean(1:6, 1:3)
+```
+
+```
+[1] 7.666667
+```
+- R's recycling vector rules prevent from getting an error.
+- It’s good practice to check important preconditions, and throw an error using **stop()** or **stopifnot()**.
+
+Checking values (cont.)
+========================================================
+
+- **stop()**
+
+```r
+wt_mean <- function(x, w) {
+  if (length(x) != length(w)) {
+    stop("`x` and `w` must be the same length", call. = FALSE)
+  }
+  sum(w * x) / sum(w)
+}
+```
+***
+
+- **stopifnot()**
+
+```r
+wt_mean <- function(x, w, na.rm = FALSE) {
+  stopifnot(length(x) == length(w))
+  
+  sum(w * x) / sum(w)
+}
+```
+
+Writing pipeable functions
+========================================================
+
+- They work within a **pipe** (%>%)
+- You should know the object type of the return value of the function
+- There are two basic types of pipeable functions:
+  - **transformations**: an object is passed to the function and a modified object is returned.
+  - **side-effects**: the passed object is not transformed, the function performs an action on the object (i.e. drwing a plot, saving a file)
+- Side-effects should "invisibly" return the passed object, so that they can still be used in a pipeline without being explicitly printed.
+
+Writing pipeable functions
+========================================================
+
+```r
+show_missings <- function(df) {
+  n <- sum(is.na(df))
+  cat("Missing values: ", n, "\n", sep = "")
+  
+  invisible(df)
+}
+```
+
+```r
+show_missings(mtcars)
+```
+
+```
+Missing values: 0
+```
+- **mtcars** is still there just not printed by default
+
+Writing pipeable functions
+========================================================
+
+```r
+mtcars %>% 
+  show_missings() %>% 
+  mutate(mpg = ifelse(mpg < 20, NA, mpg)) %>% 
+  show_missings()
+```
+
+```
+Missing values: 0
+Missing values: 18
+```
+
+Iteration
+========================================================
+- Another tool for reducing duplication in your code is **iteration**.
+- It helps to do the same things to multiple inputs (i.e. repeat the same operation on different columns, or on different datasets)
+- There's two important iteration paradigms:
+  - Imperative programming: **for** and **while** loops
+  - Functional programming: tools to extract commonalities from loops and assign them their own function.
+  
+Iteration: For loops
+========================================================
+- Imagine this tibble:
+
+```r
+df <- tibble(
+  a = rnorm(10),
+  b = rnorm(10),
+  c = rnorm(10),
+  d = rnorm(10)
+)
+```
+- How to compute the median of each column?
+
+Iteration: For loops
+========================================================
+-
+
+```r
+median(df$a)
+```
+
+```
+[1] -0.1051011
+```
+
+```r
+median(df$b)
+```
+
+```
+[1] -0.340493
+```
+***
+-
+-
+
+```r
+median(df$c)
+```
+
+```
+[1] -0.4676548
+```
+
+```r
+median(df$d)
+```
+
+```
+[1] -0.001487524
+```
+
+Iteration: For loops
+========================================================
+- But, maybe it's better not to do that:
+
+```r
+output <- vector("double", ncol(df))  # 1. output
+for (i in seq_along(df)) {            # 2. sequence
+  output[[i]] <- median(df[[i]])      # 3. body
+}
+output
+```
+
+```
+[1] -0.105101066 -0.340493010 -0.467654836 -0.001487524
+```
+
+Iteration: For loops
+========================================================
+- Every loops had three components:
+  
+    1. Output: Allocate sufficient space before starting the loop. vector() creates an empty vector of given length.
+    2. Sequence: Determines what to loop over. 
+    3. Body: Code that does the work. 
+
+- Aside:
+  
+    - **seq_along()** is the "safe" version of **1:length(l)**. It handles zero-length vectors properly.
+    
+Iteration: For loop variations
+========================================================
+- There are four variations on the basic theme of the for loop:
+
+    1. Modifying an existing object, instead of creating a new object.
+    
+    2. Looping over names or values, instead of indices.
+    
+    3. Handling outputs of unknown length.
+    
+    4. Handling sequences of unknown length.
+    
+
+Modifying an existing object
+========================================================
+- Remember our rescaling problem from before?
+
+```r
+rescale01 <- function(x) {
+  rng <- range(x, na.rm = TRUE)
+  (x - rng[1]) / (rng[2] - rng[1])
+}
+```
+
+- To solve this problem with a for loop think of the three components.
+  - Output: same as the input, the df we want to rescale.
+  - Sequence: we want to iterate over each column (i.e. **seq_along()**)
+  - Body: apply **rescale01()**
+  
+Modifying an existing object (example)
+========================================================
+
+```r
+for (i in seq_along(df)) {
+  df[[i]] <- rescale01(df[[i]])
+}
+
+df
+```
+
+```
+# A tibble: 10 x 4
+       a     b     c      d
+   <dbl> <dbl> <dbl>  <dbl>
+ 1 0.650 0.225 1     0.643 
+ 2 0.370 1     0.191 0.0793
+ 3 1     0.144 0.618 0.828 
+ 4 0.456 0.704 0.751 0     
+ 5 0.698 0.338 0.383 0.728 
+ 6 0.447 0.424 0.824 0.448 
+ 7 0.499 0.498 0.957 0.809 
+ 8 0.477 0     0     0.337 
+ 9 0     0.104 0.443 0.633 
+10 0.845 0.614 0.337 1     
+```
+
+Looping patterns
+========================================================
+- There are three basic ways to loop over a vector:
+
+    1. Looping over the numeric indices (e.g. for (i in seq_along(xs)), or x[[i]])
+    2. Looping over elements (e.g. for (x in xs)). Very useful for side-effects.
+    3. Looping over names (e.g. for (nm in names(xs))). Useful for using the name in a plot or a file name.
+    
+- Creating a named output should be:
+
+```r
+results <- vector("list", length(x))
+names(results) <- names(x)
+```
+
+Looping patterns
+========================================================
+- Iteration over indices is the most general form, because given the position you can get the name and the value:
+
+```r
+for (i in seq_along(x)) {
+  name <- names(x)[[i]]
+  value <- x[[i]]
+}
+```
+
+Unknown output length
+========================================================
+- Imagine we want to simulate some random vectors of random length. We might think to solve this by progressively growing the vector:
+
+```r
+means <- c(0, 1, 2)
+
+output <- double()
+for (i in seq_along(means)) {
+  n <- sample(100, 1)
+  output <- c(output, rnorm(n, means[[i]]))
+}
+str(output)
+```
+
+```
+ num [1:165] -0.23 0.25 -0.522 -0.555 1.494 ...
+```
+
+- Not very efficient!! This setup makes R copy all the data from the previous iteration.
+
+Unknown output length
+========================================================
+- A better solution might be to save the results to a list and then combine into a vector:
+
+```r
+out <- vector("list", length(means))
+for (i in seq_along(means)) {
+  n <- sample(100, 1)
+  out[[i]] <- rnorm(n, means[[i]])
+}
+str(out)
+```
+
+```
+List of 3
+ $ : num [1:94] -0.885 0.166 1.76 2.033 0.31 ...
+ $ : num [1:59] 0.6292 4.0433 0.0127 -0.5523 1.218 ...
+ $ : num [1:87] 2 1.06 1.53 3.24 1.37 ...
+```
+
+Unknown output length
+========================================================
+
+```r
+str(unlist(out))
+```
+
+```
+ num [1:240] -0.885 0.166 1.76 2.033 0.31 ...
+```
+
+- To "flatten" different objects types:
+  - lists: **unlist()**
+  - long strings: **paste(output, collapse = "")**
+  - data frames: **dplyr::bind_rows(output)**
+- Combine in one step using these types of functions.
+  
+Unknown sequence length: While loops
+========================================================
+- When you don't know how long the sequence needs to run: Use a **while** loop
+- **while** loops are simpler than **for** loops. They only have two components:
+  - condition
+  - body
+
+
+```r
+while (condition) {
+  # body
+}
+```
+
+Unknown sequence length: While loops
+========================================================
+- You can rewrite any for loop as a while loop, but you can’t rewrite every while loop as a for loop:
+
+```r
+for (i in seq_along(x)) {
+  # body
+}
+
+# Equivalent to
+i <- 1
+while (i <= length(x)) {
+  # body
+  i <- i + 1 
+}
+```
+
+Unknown sequence length: While loops
+========================================================
+- Example. Find out how many times it takes to get three heads in a row:
+
+```r
+flip <- function() sample(c("T", "H"), 1)
+
+flips <- 0
+nheads <- 0
+
+while (nheads < 3) {
+  if (flip() == "H") {
+    nheads <- nheads + 1
+  } else {
+    nheads <- 0
+  }
+  flips <- flips + 1
+}
+flips
+```
+
+```
+[1] 9
+```
+
+
+For loops vs. functionals
+========================================================
+- For loops aren't as important in R as in other languages, given that R is a functional programming language.
+- This means that we can wrap for loops in functions and call those functions instead of creating a for loop.
+- Consider the same data fram we've being using:
+
+```r
+df <- tibble(
+  a = rnorm(10),
+  b = rnorm(10),
+  c = rnorm(10),
+  d = rnorm(10)
+)
+```
+- Imagine we want to compute the mean of every column.
+
+For loops vs. functionals
+========================================================
+-
+
+```r
+output <- vector("double", length(df))
+for (i in seq_along(df)) {
+  output[[i]] <- mean(df[[i]])
+}
+output
+```
+
+```
+[1] -0.04728759 -0.01834096  0.45907584 -0.18155782
+```
+***
+-
+
+```r
+col_mean <- function(df) {
+  output <- vector("double", length(df))
+  for (i in seq_along(df)) {
+    output[i] <- mean(df[[i]])
+  }
+  output
+}
+output
+```
+
+```
+[1] -0.04728759 -0.01834096  0.45907584 -0.18155782
+```
+
+
+For loops vs. functionals
+========================================================
+- What if I also want to compute the median and the standard deviation?
+
+```r
+col_median <- function(df) {
+  output <- vector("double", length(df))
+  for (i in seq_along(df)) {
+    output[i] <- median(df[[i]])
+  }
+  output
+}
+col_sd <- function(df) {
+  output <- vector("double", length(df))
+  for (i in seq_along(df)) {
+    output[i] <- sd(df[[i]])
+  }
+  output
+}
+```
+
+For loops vs. functionals
+========================================================
+- This for-loop boilerplate makes it difficult to see what is happening in the functions.
+- Now, think about the following functions:
+
+```r
+f1 <- function(x) abs(x - mean(x)) ^ 1
+f2 <- function(x) abs(x - mean(x)) ^ 2
+f3 <- function(x) abs(x - mean(x)) ^ 3
+```
+- We can extract into a single function:
+
+```r
+f <- function(x, i) abs(x - mean(x)) ^ i
+```
+
+For loops vs. functionals
+========================================================
+- We can do the same with **col_mean**, **col_median**, and **col_sd**:
+
+```r
+col_summary <- function(df, fun) {
+  out <- vector("double", length(df))
+  for (i in seq_along(df)) {
+    out[i] <- fun(df[[i]])
+  }
+  out
+}
+col_summary(df, median)
+```
+
+```
+[1]  0.09531263 -0.08622930  0.41175576 -0.14945440
+```
+
+```r
+col_summary(df, mean)
+```
+
+```
+[1] -0.04728759 -0.01834096  0.45907584 -0.18155782
+```
+
+For loops vs. functionals
+========================================================
+- This envelops the powerful idea of passing a function onto another function.
+- It's one of the behaviors that make R a functional programming language.
+- We are gonna continue with the **purr** package which provides functions that eliminate the need for many common loops, the **apply** family of functions (apply(), lapply(), tapply(), etc.):
+
+purrr::functions()
+========================================================
+- The goal of using **purrr** functions instead of for loops is to allow you break common list manipulation challenges into independent pieces:
+
+  1. How can you solve the problem for a single element of the list? 
+      - Once you’ve solved that problem, purrr takes care of generalising your solution to every element in the list.
+
+  2. If you’re solving a complex problem, how can you break it down into bite-sized pieces that allow you to advance one small step towards a solution? 
+      - With purrr, you get lots of small pieces that you can compose together with the pipe.
+
+The map functions
+========================================================
+- Looping over a vector is so common that the **purrr** package provides a family of functions to do it for you.
+  - map() makes a list.
+  - map_lgl() makes a logical vector.
+  - map_int() makes an integer vector.
+  - map_dbl() makes a double vector.
+  - map_chr() makes a character vector.
+  
+- Each takes a vector as input, applies a function to each piece, and then returns a new vector that’s the same length (and has the same names) as the input.
+- The benefits of using this functions over for loops is **clarity**!
+
+The map functions
+========================================================
+- We can use these functions to perform the same computations as the last for loop.
+
+```r
+map_dbl(df, mean)
+```
+
+```
+          a           b           c           d 
+-0.04728759 -0.01834096  0.45907584 -0.18155782 
+```
+
+```r
+map_dbl(df, median)
+```
+
+```
+          a           b           c           d 
+ 0.09531263 -0.08622930  0.41175576 -0.14945440 
+```
+
+The map functions with %>%
+========================================================
+
+```r
+df %>% map_dbl(mean)
+```
+
+```
+          a           b           c           d 
+-0.04728759 -0.01834096  0.45907584 -0.18155782 
+```
+
+```r
+df %>% map_dbl(median)
+```
+
+```
+          a           b           c           d 
+ 0.09531263 -0.08622930  0.41175576 -0.14945440 
+```
+
+Differences with the map functions
+========================================================
+- The second argument, .f, the function to apply, can be a formula, a character vector, or an integer vector. You’ll learn about those handy shortcuts in the next section.
+
+- map_*() uses … ([dot dot dot]) to pass along additional arguments to .f each time it’s called:
+
+```r
+map_dbl(df, mean, trim = 0.5)
+```
+
+```
+          a           b           c           d 
+ 0.09531263 -0.08622930  0.41175576 -0.14945440 
+```
+
+Differences with the map functions
+========================================================
+- The map functions also preserve names:
+
+```r
+z <- list(x = 1:3, y = 4:5)
+map_int(z, length)
+```
+
+```
+x y 
+3 2 
+```
+
+Shortcuts
+========================================================
+- There are a few shortcuts that you can use with .f in order to save a little typing. 
+- Imagine you want to fit a linear model to each group in a dataset.
+
+```r
+models <- mtcars %>% 
+  split(.$cyl) %>% 
+  map(function(df) lm(mpg ~ wt, data = df))
+```
+- **purrr** provides a convenient shortcut "~"
+
+```r
+models <- mtcars %>% 
+  split(.$cyl) %>% 
+  map(~lm(mpg ~ wt, data = .))
+```
+
+
+Shortcuts
+========================================================
+- Lets say we want to extract R^2 from the model
+
+```r
+models %>% 
+  map(summary) %>% 
+  map_dbl(~.$r.squared)
+```
+
+```
+        4         6         8 
+0.5086326 0.4645102 0.4229655 
+```
+***
+- But named components is a common operation, so:
+
+```r
+models %>% 
+  map(summary) %>% 
+  map_dbl("r.squared")
+```
+
+```
+        4         6         8 
+0.5086326 0.4645102 0.4229655 
+```
+
+
+The map functions: Base R
+========================================================
+- The **apply** family of functions (lapply(), sapply(), tapply(), etc.) are similar to the **purrr** functions.
+  - **lapply()** is basically identical to **map()**, except that **map()** is consistent with all other **purrr** functions and handles the shortcuts for .f
+  - **sapply()** is a wrapper for **lapply()** that automatically simplifies the output.
+
+```r
+x1 <- list(
+  c(0.27, 0.37, 0.57, 0.91, 0.20),
+  c(0.90, 0.94, 0.66, 0.63, 0.06), 
+  c(0.21, 0.18, 0.69, 0.38, 0.77)
+)
+x2 <- list(
+  c(0.50, 0.72, 0.99, 0.38, 0.78), 
+  c(0.93, 0.21, 0.65, 0.13, 0.27), 
+  c(0.39, 0.01, 0.38, 0.87, 0.34)
+)
+```
+
+
+sapply()
+========================================================
+
+```r
+threshold <- function(x, cutoff = 0.8) x[x > cutoff]
+x1 %>% sapply(threshold) %>% str()
+```
+
+```
+List of 3
+ $ : num 0.91
+ $ : num [1:2] 0.9 0.94
+ $ : num(0) 
+```
+
+```r
+x2 %>% sapply(threshold) %>% str()
+```
+
+```
+ num [1:3] 0.99 0.93 0.87
+```
+- Problematic in a function! Difficult to see what type of output you're gonna get.
+
+vapply()
+========================================================
+- Safe alternative to **sapply()**. You supply an additional argument that defines the type.
+- Only problem. Lots of typing:
+
+```r
+vapply(df, is.numeric, logical(1)) 
+```
+
+```
+   a    b    c    d 
+TRUE TRUE TRUE TRUE 
+```
+
+```r
+#is equivalent to 
+map_lgl(df, is.numeric)
+```
+
+```
+   a    b    c    d 
+TRUE TRUE TRUE TRUE 
+```
+
+
+
+Dealing with failure
+========================================================
+- Using map functions to repeat many operations can lead to a failure.
+- This causes an error to be returned, and no output. Annoying, right?
+- Introducing: **safely()**
+  - **safely()** is an adverb. I.e. it takes a function (a verb) and returns a modified version with two elements:
+    1. **result**, the original result. If there's an error, this will be **NULL**.
+    2. **error**, an error object. If the operation is succesful, this will be **NULL**.
+    
+safely() example:
+========================================================
+
+```r
+safe_log <- safely(log)
+str(safe_log(10))
+```
+
+```
+List of 2
+ $ result: num 2.3
+ $ error : NULL
+```
+
+```r
+str(safe_log("a"))
+```
+
+```
+List of 2
+ $ result: NULL
+ $ error :List of 2
+  ..$ message: chr "non-numeric argument to mathematical function"
+  ..$ call   : language log(x = x, base = base)
+  ..- attr(*, "class")= chr [1:3] "simpleError" "error" "condition"
+```
+
+safely() and map_()
+========================================================
+
+
+```r
+x <- list(1, 10, "a")
+y <- x %>% map(safely(log))
+str(y)
+```
+
+```
+List of 3
+ $ :List of 2
+  ..$ result: num 0
+  ..$ error : NULL
+ $ :List of 2
+  ..$ result: num 2.3
+  ..$ error : NULL
+ $ :List of 2
+  ..$ result: NULL
+  ..$ error :List of 2
+  .. ..$ message: chr "non-numeric argument to mathematical function"
+  .. ..$ call   : language log(x = x, base = base)
+  .. ..- attr(*, "class")= chr [1:3] "simpleError" "error" "condition"
+```
+
+safely() and map_() (cont.)
+========================================================
+
+```r
+y <- y %>% transpose()
+str(y)
+```
+
+```
+List of 2
+ $ result:List of 3
+  ..$ : num 0
+  ..$ : num 2.3
+  ..$ : NULL
+ $ error :List of 3
+  ..$ : NULL
+  ..$ : NULL
+  ..$ :List of 2
+  .. ..$ message: chr "non-numeric argument to mathematical function"
+  .. ..$ call   : language log(x = x, base = base)
+  .. ..- attr(*, "class")= chr [1:3] "simpleError" "error" "condition"
+```
+
+Purrr adverbs
+========================================================
+- **purrr** provides two other useful adverbs:
+  - **possibly()**. Simpler than safely, you assign a default value to return.
+  - **quietly()**. Instead of capturing errors, it captures printed outputs, messages, and warnings.
+  
+
+```r
+x <- list(1, 10, "a")
+x %>% map_dbl(possibly(log, NA_real_))
+```
+
+```
+[1] 0.000000 2.302585       NA
+```
+
+Purrr adverbs
+========================================================
+
+```r
+x <- list(1, -1)
+x %>% map(quietly(log)) %>% str()
+```
+
+```
+List of 2
+ $ :List of 4
+  ..$ result  : num 0
+  ..$ output  : chr ""
+  ..$ warnings: chr(0) 
+  ..$ messages: chr(0) 
+ $ :List of 4
+  ..$ result  : num NaN
+  ..$ output  : chr ""
+  ..$ warnings: chr "NaNs produced"
+  ..$ messages: chr(0) 
+```
+
+Mapping over multiple arguments
+========================================================
+- To iterate along multiple related inputs in parallel. **map2()** and **pmap()**.
+- Imagine you want to simulate some random normals with different means.
+
+```r
+mu <- list(5, 10, -3)   #using map()
+mu %>% 
+  map(rnorm, n = 5) %>% 
+  str()
+```
+
+```
+List of 3
+ $ : num [1:5] 5.02 4.16 5.63 6.15 3.95
+ $ : num [1:5] 10.64 10.59 8.97 10.01 10.33
+ $ : num [1:5] -1.74 -4.97 -3.63 -2.38 -3.44
+```
+
+Mapping over multiple arguments
+========================================================
+- What if you want to vary the standard deviation?
+
+```r
+sigma <- list(1, 5, 10)
+seq_along(mu) %>% 
+  map(~rnorm(5, mu[[.]], sigma[[.]])) %>% 
+  str()
+```
+
+```
+List of 3
+ $ : num [1:5] 3.78 4.02 4.64 3.94 6.88
+ $ : num [1:5] 14.07 9.96 17.42 11.1 8.06
+ $ : num [1:5] -0.74 6.81 -7.83 -11.45 9.85
+```
+- This code looks weird.
+
+Mapping over multiple arguments
+========================================================
+- Using **map2()** we get:
+
+```r
+map2(mu, sigma, rnorm, n = 5) %>% str()
+```
+
+```
+List of 3
+ $ : num [1:5] 4.83 4.97 4.88 5.09 4.8
+ $ : num [1:5] 6.5 11.76 11.56 5 8.85
+ $ : num [1:5] -17.24 -8.02 -18.67 -18.98 -10.65
+```
+- Arguments that vary **for each** call go **before** the function.
+- Arguments that are the same for every call come **after**.
+
+Mapping over multiple arguments (pmpap)
+========================================================
+- **pmap()** is an extension of **map2()** (think map3(), map4(), etc.)
+
+```r
+n <- list(1, 3, 5)
+args1 <- list(n, mu, sigma)
+args1 %>%
+  pmap(rnorm) %>% 
+  str()
+```
+
+```
+List of 3
+ $ : num 4.72
+ $ : num [1:3] 5.7 4.29 8.59
+ $ : num [1:5] -17.79 -8.29 14.44 5.27 -7.41
+```
+
+Mapping over multiple arguments (pmpap)
+========================================================
+- And it's better to name the arguments to be clearer:
+
+```r
+args2 <- list(mean = mu, sd = sigma, n = n)
+args2 %>% 
+  pmap(rnorm) %>% 
+  str()
+```
+
+```
+List of 3
+ $ : num 3.78
+ $ : num [1:3] 18.3 15.9 17.6
+ $ : num [1:5] -0.225 2.908 6.456 -4.167 -5.336
+```
+
+Invoking different functions
+========================================================
+- On top of varying the arguments, we can vary the functions. Use **invoke_map()**.
+
+```r
+f <- c("runif", "rnorm", "rpois")
+param <- list(
+  list(min = -1, max = 1), 
+  list(sd = 5), 
+  list(lambda = 10)
+)
+invoke_map(f, param, n = 5) %>% str()
+```
+
+```
+List of 3
+ $ : num [1:5] 0.5487 -0.2314 0.0475 -0.7823 -0.729
+ $ : num [1:5] 15.275 11.8001 -4.0564 -8.5654 0.0677
+ $ : int [1:5] 11 10 10 9 10
+```
+
+Invoking different functions
+========================================================
+- The parameters for **invoke_map()**.
+  1. List of functions or character vector of function names. 
+  2. List of lists giving the arguments that vary for each function. 
+  3. The subsequent arguments are passed on to every function.
+  
+- Using **tribble()** makes creating these matching pairs a little easier.
+
+Invoking different functions
+========================================================
+
+```r
+sim <- tribble(
+  ~f,      ~params,
+  "runif", list(min = -1, max = 1),
+  "rnorm", list(sd = 5),
+  "rpois", list(lambda = 10)
+)
+sim %>% 
+  mutate(sim = invoke_map(f, params, n = 10))
+```
+
+```
+# A tibble: 3 x 3
+  f     params     sim       
+  <chr> <list>     <list>    
+1 runif <list [2]> <dbl [10]>
+2 rnorm <list [1]> <dbl [10]>
+3 rpois <list [1]> <int [10]>
+```
+
+
+  
