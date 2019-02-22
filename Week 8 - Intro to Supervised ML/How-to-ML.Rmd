@@ -1,0 +1,292 @@
+---
+title: 'Supervised Machine Learning in R: Example 1'
+author: "Carlos Calvo Hernandez"
+date: "2/15/2019"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Welcome to Machine Learning in R!
+
+The purpose of this report is to two-fold to show an example of an **R Markdown** report, and show an example of Supervised Machine Learning algorithms. Two algorithms are used here: Decision Trees and Random Forests.
+
+## Setup and Data
+
+We are gonna start by creating and running a model that predicts the price of real estate in Melbourne, Australia.
+
+Let's load in the packages, and data we'll use.
+
+```{r packs, results='hide'}
+library(tidyverse)
+library(rpart)
+library(randomForest)
+
+melbourne_data <- read_csv("~/Documents/RStudio/Kaggle-DS_R/Data/melb_data.csv")
+```
+
+Let's print a summary of the data to analyze it.
+```{r}
+summary(melbourne_data)
+```
+
+For this example we'll get rid of the observations that have missing values in the data.
+
+```{r}
+melbourne_data <- na.omit(melbourne_data)
+```
+
+## Running the model
+
+### Choosing the prediction target.
+
+Since we want to predict the price of houses in Melbourne, then our "prediction target" should be the "Price" variable.
+
+### Choosing predictors
+
+Next we need to choose the predictors. Let's start with the numeric variables of the data set. These are: the number of rooms and bathrooms, the size of the lot and the builiding, the year it eas built, and the location of the lot.
+
+### Building the model
+
+We need to go through a set of steps to buil and use a model:
+
+*Define: Choose the type of model.
+*Fit: Capture patterns from the data. This is the heart of the model.
+*Predict: The names says it all.
+*Evaluate: Determine the accuracy of the model's predictions.
+
+We are going to create a decision tree. For that we'll use the `rpart()` function from the `rpart` package. This is where our earlier choices will come in. The `rpart()` uses a specific syntax that looks like this:
+
+> prediction_target ~ predictor1 + predictor2 + predictor3
+
+This syntax tells the function that we want to predict the "prediction_target" variable based on the values of "predictor1", "predictor2", and "predictor3". 
+
+Let's train the decision tree with the Melbourne data set.
+
+```{r}
+fit <- rpart(Price ~ Rooms + Bathroom + Landsize + BuildingArea + YearBuilt + Lattitude + Longtitude, data = melbourne_data)
+```
+
+To actually see what the model is doing:
+
+```{r}
+plot(fit, uniform = TRUE)
+text(fit, cex = .5) # this line of code adds text labels and makes them 50% of their 
+                    # default size
+```
+
+Now, we can use our chosen fitted model to predict the prices of some house, we use the `predict()` function.
+
+```{r, echo=FALSE, results='markup'}
+print("Making predictions for the following 6 houses:")
+print(head(melbourne_data))
+
+print("The predictions are")
+print(predict(fit, head(melbourne_data)))
+
+print("Actual price")
+print(head(melbourne_data$Price))
+```
+
+### How do we know our model is good?
+
+How good is the model we've just built? This question should be answered for almost every model you build. In most, though not in all, applications the rekevant measure of model quality is predictive accuracy. In other words, the idea is to know if the model's predictions are close to reality.
+
+One way to do this is by making predictions with the same data used to train the model. Then we could compare those predictions to the actual target values in the training data. There's a critical shortcoming to this approach that we'll tackle in the following sections.
+
+Even with this simple approach, we'll need to summarize the model quality into a form that humans can understand. If we end up with 10000 predicted home values, inevitably, there's gonna be a mix of good and bad predictions. Looking through such a long list would be time consuming and difficult.
+
+There are many metrics for summarizing model quality, we'll start with [**Mean Absolute Error**](https://en.wikipedia.org/wiki/Mean_absolute_error) (MAE). This metric is a measure of difference between two continuos variables that observe the same phenomenon. 
+
+The prediction error for each house is:
+
+> error = actual - predicted
+
+This is straightforward, if a house costs \$150,000 and the model predicted it would cost \$100,000, then the error is \$50,000.
+
+With the MAE metric, we take the absolute value of each error. This converts each error to a positive number. We then take the average of those absolute errors. This is our measure of model quality. In other words:
+
+> On average, our predictions are off by X
+
+We can get the MAE for our model using the `mae()` function from the `modelr` package. The `mae()` function takes in a model and the dataset to test it againts.
+
+```{r}
+library(modelr)
+
+mae(model = fit, data = melbourne_data)
+```
+
+### The problem with "in-sample" scores
+
+The MAE result we just computed is known as an "in-sample" score. In our model, we used a single set of houses (as our data set) for building the model **and** for calculating the MAE score. This is not ideal.
+
+Imagine that, in the large real estate market, door color is unrelated to home price. However, in the sample of data you used to build the model, it may be that all homes with green doors were very expensive. The model's job is to find patterns that predict home prices, so it will see this pattern, and it will always predict high prices for homes with green doors.
+
+Since this pattern was originally derived from the training data, the model will appear accurate in the training data. But this pattern likely won't hold when the model sees new data, and the model would be very inaccurate.
+
+Models' practical value come from making predictions on new data, so we should measure performance on data that wasn't used to build the model. The most straightforward way to do this is to exclude some of our data from the model-building process, and then use those to test the model's accuracy on data it hasn't seen before. This data is called *validation data*.
+
+We can split our dataframe into testing and training data very easily using the `resample_partition()` function from the `modelr` package.
+
+```{r}
+# split our data so that 30% is in the test set and 70% is in the training set
+splitData <- resample_partition(melbourne_data, c(test = 0.3, train = 0.7))
+
+# how many cases are in test & training set? 
+lapply(splitData, dim)
+```
+
+We can now fit a new model using the training data and test it using the testing data.
+
+```{r}
+# fit a new model to our training set
+fit2 <- rpart(Price ~ Rooms + Bathroom + Landsize + BuildingArea +
+             YearBuilt + Lattitude + Longtitude, data = splitData$train)
+
+# get the mean average error for our new model, based on our test data
+mae(model = fit2, data = splitData$test)
+```
+
+The error is now even larger than before, but we now know that it's not artificially lowered by testing on the training data.
+
+## Improving the model
+
+There is a phenomenon called **overfitting**, in our "tree" model scenario, is when the model matches the data almost perfectly, but does poorly in validation and other new data. This would mean that there is a "leaf" of the tree for almost every house in the model.
+
+At the other extreme end, a model that fails to capture important distinctions and patterns in the data so that it performs poorly even with training data is called **underfitting**. In our model, this would be like only having two or three "leaves" so that every leaf contains a wide variety of houses, that would make predictions to turn up far off for most houses.
+
+
+```{r, echo=FALSE}
+plot(fit, uniform = TRUE)
+text(fit, cex = .5) 
+```
+
+We can use a utility function to help compare MAE scores from different values for the tree's max depth. A function to get the MAE for a given max depth. 
+
+```{r}
+# You should pass in the target as the name of the target column and the predictors 
+# as vector where each item in the vector is the name of the column
+
+get_mae <- function(maxdepth, target, predictors, training_data, testing_data){
+    
+    # turn the predictors & target into a formula to pass to rpart()
+    predictors <- paste(predictors, collapse="+")
+    formula <- as.formula(paste(target,"~",predictors,sep = ""))
+    
+    # build our model
+    model <- rpart(formula, data = training_data,
+                   control = rpart.control(maxdepth = maxdepth))
+    # get the mae
+    mae <- mae(model, testing_data)
+    return(mae)
+}
+```
+
+Now, let's use a for-loop to compare the accuracy of models built with different values for maxdepth. In this case, the lowest MAE is 5. 
+
+```{r}
+# target & predictors to feed into our formula
+target <- "Price"
+predictors <-  c("Rooms","Bathroom","Landsize","BuildingArea",
+                 "YearBuilt","Lattitude","Longtitude")
+
+# get the MAE for maxdepths between 1 & 10
+for(i in 1:10){
+    mae <- get_mae(maxdepth = i, target = target, predictors = predictors,
+                  training_data = splitData$train, testing_data = splitData$test)
+    print(glue::glue("Maxdepth: ",i,"\t MAE: ",mae))
+}
+```
+
+You can notice that after a certain depth the MAE levels out. This is because given this data set and our current stopping condition, 6 is the maximum number of nodes that `rpart` will use to create a tree. `rpart` has some built-in safeguards to prevent overfitting that won't generate a deeper tree for this data set.
+
+The takeaway is that models can suffer from either:
+
+* Overfitting: capturing spurious patterns that won't recur in the future, leading to less accurate predictions, or
+
+* Underfitting: failing to capture relevant patterns, again leading to less accurate predictions.
+
+We use validation data, which isn't used in model training, to measure a candidate model's accuracy. This lets us try many candidate models and keep the best one.
+
+## A new type of model: Random Forests
+
+Decision trees leave you with a difficult decision. What type of tree do I use? A deep tree with lots of leaves that will overfit because each prediction is coming from historical data from only the few houses at its leaf, or a shallow tree with few leaves that will perform poorly because it fails to capture as many distinctions in the raw data.
+
+Even today's most sophisticated modeling techniques face this tension between underfitting and overfitting. Nevertheless, many models have clever ideas that can lead to better performance. One example is the cleverly named [**Random Forest**](https://en.wikipedia.org/wiki/Random_forest).
+
+The random forest creates many trees, and it makes a prediction by averaging the predictions of each component tree. It generally has much better predictive accuracy than a single decision tree and it works well with default parameters. If you keep modeling, you can learn more models with even better performance, but many of those are sensitive to getting the right parameters.
+
+One of the nice things about R is that the syntax you use to build models across different packages is pretty consistent. All we need to change in order to use a random forest instead of a plain decision tree is to load in the correct library & change the function we use from `rpart()` to `randomForest()`, like so:
+
+```{r}
+# fit a random forest model to our training set
+fitRandomForest <- randomForest(Price ~ Rooms + Bathroom + Landsize + BuildingArea +
+             YearBuilt + Lattitude + Longtitude, data = splitData$train, importance = TRUE)
+
+# get the mean average error for our new model, based on our test data
+mae(model = fitRandomForest, data = splitData$test)
+```
+
+As you can see, this is a big improvement over our previous best decision tree, which was around \$320,000 off. There are parameters that allow you to change the performance of the Random Forest much as we changed the maximum depth of the single decision tree. But one of the best features of Random Forest models is that they generally work reasonably even without this tuning.
+
+```{r}
+fitRandomForest
+```
+
+We can tune the model by changing the number of trees (`ntree`), the number of variables randomly sampled (`mtry`). By default the `ntree` is set to 500 and `mtry` is 2. The percentage of the variance explained by the model is 77.25%.
+
+```{r}
+fitRandomForest2 <- randomForest(Price ~ Rooms + Bathroom + Landsize + BuildingArea +
+             YearBuilt + Lattitude + Longtitude, data = splitData$train, ntree = 500, mtry = 6 , importance = TRUE)
+
+
+```
+
+```{r}
+mae(model = fitRandomForest2, data = splitData$test)
+
+fitRandomForest2
+```
+
+When we increase the `mtry` from 2 to 6, the variance explained increased from 77.25% to 78.52% and the MAE decreased by \$ `r mae(model = fitRandomForest, data = splitData$test) - mae(model = fitRandomForest2, data = splitData$test)`.
+
+Below, we can see the drop in mean accuracy for each of the variables in each of the models.
+
+```{r}
+varImpPlot(fitRandomForest)
+```
+
+```{r}
+varImpPlot(fitRandomForest2)
+```
+
+We will now use a for-loop and check for different values of `mtry`.
+
+```{r}
+for (i in 2:7){
+  fitRandomForest3 <- randomForest(Price ~ Rooms + Bathroom + Landsize + BuildingArea +
+             YearBuilt + Lattitude + Longtitude, data = splitData$train, ntree = 500, mtry = i , importance = TRUE)
+  rf_mae <- mae(model = fitRandomForest3, data = splitData$test)
+  print(fitRandomForest3)
+  print(glue::glue("mtry: ",i,"\t MAE: ", rf_mae))
+}
+```
+
+
+We can see how the variance explained by the model increases every iteration until the maximum accuracy level of `mtry` (8).
+
+## Conclusion
+
+I hope this helps realize the power that RStudio posses when creating reports with embedded code, and how ML algorithms can be used and explained through these types of reports.
+
+## Sources
+
+* [Kaggle - Learn - R Module](https://www.kaggle.com/learn/r)
+* [R-bloggers: How to implement random forests in R by Perceptive Analytics](https://www.r-bloggers.com/how-to-implement-random-forests-in-r/)
+
+
