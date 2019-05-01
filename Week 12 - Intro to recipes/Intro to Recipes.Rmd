@@ -1,0 +1,240 @@
+---
+title: "IPI Workshop - Introduction to Recipes R Package"
+author: "Carlos Calvo Hernandez"
+date: "4/24/2019"
+output: 
+  html_document:
+    toc: TRUE
+    toc_float: TRUE
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(tidymodels)
+library(caret)
+knitr::opts_chunk$set(echo = TRUE, digits = 3)
+```
+
+# Recipes 
+
+<img src="Figures/logo.png" align="right" height="80px"/>
+
+As part of the `tidymodels` suite of packages and following the `tidyverse` grammar and concepts, `recipes` can be the first in a series of consistent building blocks to statistical modeling within R. `recipes` provides a standard framework for preprocessing and characterization that we can later use with our favorite modeling framework (ideally in `parsnip`).
+
+## Introduction
+
+The `recipes` package is an alternative method for creating and preprocessing design matrices that can be used for modeling or visualization. From [wikipedia](https://en.wikipedia.org/wiki/Design_matrix):
+
+ > In statistics, a **design matrix** (also known as regressor matrix or model matrix) is a matrix of values of explanatory variables of a set of objects, often denoted by X. Each row represents an individual object, with the successive columns corresponding to the variables and their specific values for that object.
+
+While R already has long-standing methods for creating these matrices (e.g. [formulas](https://www.rstudio.com/rviews/2017/02/01/the-r-formula-method-the-good-parts) and `model.matrix`), there are some [limitations to what the existing infrastructure can do](https://rviews.rstudio.com/2017/03/01/the-r-formula-method-the-bad-parts/). 
+
+The idea of the `recipes` package is to define a recipe or blueprint that can be used to sequentially define the encodings and preprocessing of the data (i.e. "feature engineering"). For example, to create a simple recipe containing only an outcome and predictors and have the predictors centered and scaled:
+
+```{r simple, eval=FALSE}
+library(recipes)
+library(mlbench)
+data(Sonar)
+sonar_rec <- recipe(Class ~ ., data = Sonar) %>%
+  step_center(all_predictors()) %>%
+  step_scale(all_predictors())
+sonar_rec
+```
+
+We are going to go over some basic uses of recipes. First, some definitions are required: 
+
+ * __variables__ are the original (raw) data columns in a data frame or tibble. For example, in a traditional formula `Y ~ A + B + A:B`, the variables are `A`, `B`, and `Y`. 
+ * __roles__ define how variables will be used in the model. Examples are: `predictor` (independent variables), `response`, and `case weight`. This is meant to be open-ended and extensible. 
+ * __terms__ are columns in a design matrix such as `A`, `B`, and `A:B`. These can be other derived entities that are grouped such as a set of principal components or a set of columns that define a basis function for a variable. These are synonymous with features in machine learning. Variables that have `predictor` roles would automatically be main effect terms  
+
+
+## A Simple Example
+
+Let's start with a simple example. The packages contains a data set that used to predict whether a person will pay back a bank loan. It has 13 predictor columns and a factor variable `Status` (the outcome). We will first separate the data into a training and test set:
+
+```{r data}
+library(recipes)
+library(rsample)
+
+data("credit_data")
+
+set.seed(55)
+train_test_split <- initial_split(credit_data)
+
+credit_train <- training(train_test_split)
+credit_test <- testing(train_test_split)
+```
+
+Note that there are some missing values in these data:
+
+```{r missing}
+vapply(credit_train, function(x) mean(!is.na(x)), numeric(1))
+```
+
+Rather than remove these, their values will be imputed.
+
+The idea is that the preprocessing operations will all be created using the training set and then these steps will be applied to both the training and test set.
+
+## An Initial Recipe
+
+First, we will create a recipe object from the original data and then specify the processing steps. 
+
+Recipes can be created manually by sequentially adding roles to variables in a data set. 
+
+If the analysis only required **outcomes** and **predictors**, the easiest way to create the initial recipe is to use the standard formula method:
+
+```{r first_rec}
+rec_obj <- recipe(Status ~ ., data = credit_train)
+rec_obj
+summary(rec_obj)
+```
+
+The data contained in the `data` argument need not be the training set; this data is only used to catalog the names of the variables and their types (e.g. numeric, etc.).  
+
+(Note that the formula method here is used to declare the variables and their roles and nothing else. If you use inline functions (e.g. `log`) it will complain. These types of operations can be added later.)
+
+## Preprocessing Steps
+
+From here, preprocessing steps for some step _X_ can be added sequentially in one of two ways:
+
+```{r step_code, eval = FALSE}
+rec_obj <- step_{X}(rec_obj, arguments)    ## or
+rec_obj <- rec_obj %>% step_{X}(arguments)
+```
+
+`step_dummy` and the other functions will always return updated recipes. 
+
+One other important facet of the code is the method for specifying which variables should be used in different steps. The manual page `?selections` has more details but [`dplyr`](https://cran.r-project.org/package=dplyr)-like selector functions can be used: 
+
+ * use basic variable names (e.g. `x1, x2`),
+ *  [`dplyr`](https://cran.r-project.org/package=dplyr) functions for selecting variables: `contains`, `ends_with`, `everything`, `matches`, `num_range`, and `starts_with`,
+ * functions that subset on the role of the variables that have been specified so far: `all_outcomes`, `all_predictors`, `has_role`, or 
+ * similar functions for the type of data: `all_nominal`, `all_numeric`, and `has_type`. 
+
+Note that the methods listed above are the only ones that can be used to select variables inside the steps. Also, minus signs can be used to deselect variables. 
+
+For our data, we can add an operation to impute the predictors. There are many ways to do this and `recipes` includes a few steps for this purpose:
+
+```{r imp-steps}
+grep("impute$", ls("package:recipes"), value = TRUE)
+```
+
+Here, _K_-nearest neighbor imputation will be used. This works for both numeric and non-numeric predictors and defaults _K_ to five:
+
+```{r dummy}
+imputed <- rec_obj %>%
+  step_knnimpute(all_predictors()) 
+imputed
+```
+
+It is important to realize that the _specific_ variables have not been declared yet (as shown when the recipe is printed above). In some preprocessing steps, variables will be added or removed from the current list of possible variables. 
+
+Since some predictors are categorical in nature (i.e. nominal), it would make sense to convert these factor predictors into numeric dummy variables (aka indicator variables) using `step_dummy`. To do this, the step selects all predictors then removes those that are numeric:
+
+```{r imputing}
+ind_vars <- imputed %>%
+  step_dummy(all_predictors(), -all_numeric()) 
+ind_vars
+```
+
+At this point in the recipe, all of the predictors should be encoded as numeric, we can further add more steps to center and scale them:
+
+```{r center_scale}
+standardized <- ind_vars %>%
+  step_center(all_predictors())  %>%
+  step_scale(all_predictors()) 
+standardized
+```
+
+If these are the only preprocessing steps for the predictors, we can now estimate the means and standard deviations from the training set. The `prep` function is used for a recipe with at least one preprocessing operation, and it estimates the required parameters from a training set that can be applied to other data sets:
+
+```{r trained}
+trained_rec <- prep(standardized, training = credit_train)
+trained_rec
+```
+
+Note that the real variables are listed (e.g. `Home` etc.) instead of the selectors (`all_predictors()`). 
+
+We can call `formula.recipe` to show what predictors and outcomes were used in a fully trained recipe.
+```{r, include=FALSE}
+formula.recipe <- function(x, ...) {
+     if (!fully_trained(x))
+         stop("All steps in the recipe must be prepped before the ",
+              "formula can be computed.",
+              call. = FALSE)
+     
+     x <- summary(x)
+     x_vars <- x$variable[x$role == "predictor"]
+     x_vars <- x_vars[!is.na(x_vars)]
+     if (length(x_vars) == 0)
+         x_vars <- 1
+     y_vars <- x$variable[x$role == "outcome"]
+     y_vars <- y_vars[!is.na(y_vars)]
+     if (length(y_vars) == 0)
+         y_vars <- ""
+     x_vars <- paste0(x_vars, collapse = "+")
+     y_vars <- paste0(y_vars, collapse = "+")
+     
+     as.formula(paste(y_vars, x_vars, sep = "~"))
+ }
+```
+
+```{r}
+formula.recipe(trained_rec)
+```
+
+
+Now that the statistics have been estimated, the preprocessing can be _applied_ to the training and test set:
+
+```{r apply}
+train_data <- bake(trained_rec, new_data = credit_train)
+test_data  <- bake(trained_rec, new_data = credit_test)
+```
+`bake` returns a tibble that, by default, includes all of the variables: 
+```{r tibbles}
+class(test_data)
+test_data
+vapply(test_data, function(x) mean(!is.na(x)), numeric(1))
+```
+Juice will return the values of the variables from the processed training set.
+```{r}
+juice(trained_rec) %>% head()
+```
+
+
+Selectors can also be used. For example, if only the predictors are needed, you can use `bake(object, new_data, all_predictors())`. 
+
+There are a number of other steps included in the package:
+
+```{r step_list, echo = FALSE}
+grep("^step_", ls("package:recipes"), value = TRUE)
+```
+
+## Checks
+
+Another type of operation that can be added to a recipes is a _check_. Checks conduct some sort of data validation and, if no issue is found, returns the data as-is; otherwise, an error is thrown. 
+
+For example, `check_missing` will fail if any of the variables selected for validation have missing values. This check is done when the recipe is prepared as well as when any data are baked. Checks are added in the same way as steps:
+
+```{r check, eval = FALSE}
+trained_rec <- trained_rec %>%
+  check_missing(contains("Marital"))
+```
+
+Currently, `recipes` includes:
+
+```{r check_list, echo = FALSE}
+grep("^check_", ls("package:recipes"), value = TRUE)
+```
+
+From here we can go on and use the modeling framework that best suits our needs (or our data).
+
+## `tidymodels` packages
+```{r}
+# Packages included with tidymodels
+tidymodels_packages()
+
+# Tags associated with differente modeling needs
+tidymodels::tag_show()
+```
+

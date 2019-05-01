@@ -1,0 +1,451 @@
+---
+title: "IPI Workshop - Text mining"
+author: "Carlos Calvo Hernandez"
+date: "4/10/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+library(tidyverse)  # tidy data wrangling
+library(tidytext) # tidy text analysis 
+library(tidymodels) # tidy ML modeling 
+library(textrecipes) # recipes package extensions
+
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, cache = TRUE)
+```
+
+# Text Classification and Analysis
+
+It's a fact that data is being generated all the time at ever faster rates. (You may even be a little weary of people pontificating about this fact.) Analysts are often trained to handle tabular or rectangular data that is mostly numeric, but much of the data proliferating today is unstructured and text-heavy. Many of us who work in analytical fields are not trained in even simple interpretation of natural language.
+
+In order to tackle these ever-growing data sets, there are two main (almost parallel and slightly complementary) avenues to go through text mining. Using the package `tidytext`, specifically created for data wrangling and visualization of text data, or the package `textrecipes` that extends the modeling capabilities of the `tidymodels` suite of packages. They are aimed at slightly different tasks within the text mining universe, `tidytext` is better at sentiment , frequency and relationship analysis, and `textrecipes` excels at converting frequencies, and relationships into numerical variables to be fed into a `tidymodels` model.
+
+Both use the tidy data philosophy, named **tidy text** which makes them compatible with the `tidyverse` packages. We'll start describing this structure. For this, I will follow Julia Silge and David Ronbinson's ["Text Mining with R"](www.tidytextmining.com); the [tidymodels](https://www.r-bloggers.com/tidymodels/), [recipes](https://tidymodels.github.io/recipes/), and [textrecipes](https://tidymodels.github.io/textrecipes/) vignettes and examples; and Emil Hvitfeldt's (`textrecipes` creator) SatRdayLA 2019 [presentation](https://github.com/EmilHvitfeldt/satRdayLA2019).
+
+
+## Tidy text
+
+Using tidy data principles is a powerful way to make handling data easier and more effective, and this is no less true when it comes to dealing with text. As described by Hadley Wickham in ["Tidy Data", Journal of Statistical Software, 2014](https://doi.org/10.18637/jss.v059.i10.), tidy data has a specific structure:
+
+* Each variable is a column
+* Each observation is a row
+* Each type of observational unit is a table
+
+We thus define the tidy text format as being **a table with one-token-per-row.** A token is a meaningful unit of text, such as a word, that we are interested in using for analysis, and tokenization is the process of splitting text into tokens. This one-token-per-row structure is in contrast to the ways text is often stored in current analyses, perhaps as strings or in a document-term matrix. For tidy text mining, the **token** that is stored in each row is most often a single word, but can also be an n-gram, sentence, or paragraph. In the tidytext package, we provide functionality to tokenize by commonly used units of text like these and convert to a one-term-per-row format.
+
+This 'tidy' structure allows for manipulation with the set of tools provided in the `tidyverse` packages. At the same time, the `tidytext` package doesn't expect a user to keep text data in a tidy form at all times during an analysis. The package includes functions to `tidy()` objects (see the `broom` package) from popular text mining R packages such as `tm`  and `quanteda`. This allows, for example, a workflow where importing, filtering, and processing is done using `dplyr` and other 'tidy' tools, after which the data can be converted into a document-term matrix for machine learning applications. The models can then be re-converted into a tidy form for interpretation and visualization with ggplot2. Another example, is use `textrecipes` with the 'tidy' data and use it directly in a `recipe` specification to run with a `tidymodels` model. 
+
+### Contrasting tidy text with other data structures
+
+The most common (**non-tidy**) structures where text data is stored in text mining approaches are:
+
+* **String**: Text can, of course, be stored as strings, i.e., character vectors, within R, and often text data is first read into memory in this form.
+* **Corpus**: These types of objects typically contain raw strings annotated with additional metadata and details.
+* **Document-term matrix**: This is a sparse matrix describing a collection (i.e., a corpus) of documents with one row for each document and one column for each term. The value in the matrix is typically word count or tf-idf (see Chapter \@ref(tfidf)).
+
+### The `unnest_tokens` function
+
+Let's use Emily Dickinson[^1] as source for some text data
+
+[^1]: Note that any source (html, pdf, txt, etc.) can be used with `tidytext` the only differences is the way data is imported or "scraped" into R.
+
+```{r text}
+text <- c("Because I could not stop for Death -",
+          "He kindly stopped for me -",
+          "The Carriage held but just Ourselves -",
+          "and Immortality")
+text
+```
+
+This is a typical character vector that we might want to analyze. In order to turn it into a tidy text dataset, we first need to put it into a data frame.
+
+```{r text_df, dependson = "text"}
+text_df <- tibble(line = 1:4, text = text)
+text_df
+```
+
+Notice that this data frame containing text isn't yet compatible with tidy text analysis, though. We can't filter out words or count which occur most frequently, since each row is made up of multiple combined words. We need to convert this so that it has **one-token-per-document-per-row**. 
+
+```{block, type = "rmdnote"}
+A token is a meaningful unit of text, most often a word, that we are interested in using for further analysis, and tokenization is the process of splitting text into tokens. 
+```
+
+Within our tidy text framework, we need to both break the text into individual tokens (a process called *tokenization*) *and* transform it to a tidy data structure. To do this, we use tidytext's `unnest_tokens()` function.
+
+```{r dependson = "text_df", R.options = list(dplyr.print_max = 10)}
+library(tidytext)
+text_df %>%
+  unnest_tokens(word, text)
+```
+
+The two basic arguments to `unnest_tokens` used here are column names. First we have the output column name that will be created as the text is unnested into it (`word`, in this case), and then the input column that the text comes from (`text`, in this case). Remember that `text_df` above has a column called `text` that contains the data of interest.
+
+The default tokenization in `unnest_tokens()` is for single words, as shown here. Also notice:
+
+* Other columns, such as the line number each word came from, are retained.
+* Punctuation has been stripped.
+* By default, `unnest_tokens()` converts the tokens to lowercase, which makes them easier to compare or combine with other datasets. (Use the `to_lower = FALSE` argument to turn off this behavior).
+
+Having the text data in this format lets us manipulate, process, and visualize the text using the standard set of tidy tools.
+
+Let's use the `janeaustenr` package for an example. The `janeaustenr` package provides Jane Austen's texts in a one-row-per-line format. 
+
+```{r original_books}
+library(janeaustenr)
+
+original_books <- austen_books() %>%
+  group_by(book) %>%
+  mutate(linenumber = row_number(),
+         chapter = cumsum(str_detect(text, regex("^chapter [\\divxlc]",
+                                                 ignore_case = TRUE)))) %>%
+  ungroup()
+original_books
+```
+
+But this is not tidy, yet. We need the **one-token-per-row** format.
+
+```{r tidy_books_raw, dependson = "original_books"}
+tidy_books <- original_books %>%
+  unnest_tokens(word, text)
+tidy_books
+```
+
+This function uses the [`tokenizers`](https://github.com/ropensci/tokenizers) package to separate each line of text in the original data frame into tokens. The default tokenizing is for words, but other options include characters, n-grams, sentences, lines, paragraphs, or separation around a regex pattern.
+
+Now that the data is in one-word-per-row format, we can manipulate it with tidy tools like `dplyr`. Often in text analysis, we will want to remove stop words; stop words are words that are not useful for an analysis, typically extremely common words such as "the", "of", "to", and so forth in English. We can remove stop words (kept in the tidytext dataset `stop_words`) with an `anti_join()`.
+
+```{r tidy_books, dependson = "tidy_books_raw"}
+data(stop_words)
+tidy_books <- tidy_books %>%
+  anti_join(stop_words)
+```
+
+The `stop_words` dataset in the `tidytext` package contains stop words from three lexicons [^2]. We can use them all together, as we have here, or `filter()` to only use one set of stop words if that is more appropriate for a certain analysis.
+
+[^2]: The three lexicons are: [onix](http://www.lextek.com/manuals/onix/stopwords1.html), [SMART](http://www.jmlr.org/papers/volume5/lewis04a/lewis04a.pdf), and [snowball](http://snowball.tartarus.org/algorithms/english/stop.txt).
+
+We can also `count()` to find the most common words in all the books as a whole.
+
+```{r dependson = "tidy_books"}
+tidy_books %>%
+  count(word, sort = TRUE) 
+```
+
+Because we've been using tidy tools we can 'pipe' anything into a tidy package. For example, `ggplot2` to get some visualization (Figure \@ref(plotcount)).
+
+```{r plotcount, dependson = "tidy_books", fig.width=6, fig.height=5, fig.cap="The most common words in Jane Austen's novels"}
+library(ggplot2)
+tidy_books %>%
+  count(word, sort = TRUE) %>%
+  filter(n > 600) %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(word, n)) +
+  geom_col() +
+  xlab(NULL) +
+  coord_flip()
+```
+
+> NOTE: the `janeaustenr`package provides the text we used for the analysis. In other analyses there would be a need for data import and cleaning.
+
+### Word frequencies
+
+The [gutenbergr](https://github.com/ropensci/gutenbergr) package. The `gutenbergr` package provides access to the public domain works from the [Project Gutenberg](https://www.gutenberg.org/) collection. 
+
+A common task in text mining is to look at word frequencies, just like we have done above for Jane Austen's novels, and to compare frequencies across different texts. We can do this intuitively and smoothly using tidy data principles. Let's get more sets of texts to compare to. First, let's look at some science fiction and fantasy novels by H.G. Wells, who lived in the late 19th and early 20th centuries. Let's get [*The Time Machine*](https://www.gutenberg.org/ebooks/35), [*The War of the Worlds*](https://www.gutenberg.org/ebooks/36), [*The Invisible Man*](https://www.gutenberg.org/ebooks/5230), and [*The Island of Doctor Moreau*](https://www.gutenberg.org/ebooks/159). We can access these works using `gutenberg_download()` and the Project Gutenberg ID numbers for each novel.
+
+```{r hgwells}
+library(gutenbergr)
+hgwells <- gutenberg_download(c(35, 36, 5230, 159))
+```
+
+
+```{r tidy_hgwells, dependson = "hgwells"}
+tidy_hgwells <- hgwells %>%
+  unnest_tokens(word, text) %>%
+  anti_join(stop_words)
+```
+
+What are the most common words in these novels of H.G. Wells?
+
+```{r dependson = "tidy_hgwells"}
+tidy_hgwells %>%
+  count(word, sort = TRUE)
+```
+
+Let's get some works from the Brontë Sisters; [*Jane Eyre*](https://www.gutenberg.org/ebooks/1260), [*Wuthering Heights*](https://www.gutenberg.org/ebooks/768), [*The Tenant of Wildfell Hall*](https://www.gutenberg.org/ebooks/969), [*Villette*](https://www.gutenberg.org/ebooks/9182), and [*Agnes Grey*](https://www.gutenberg.org/ebooks/767). We will again use the Project Gutenberg ID numbers for each novel and access the texts using `gutenberg_download()`.
+
+```{r bronte}
+bronte <- gutenberg_download(c(1260, 768, 969, 9182, 767))
+```
+
+```{r tidy_bronte, dependson = "bronte"}
+tidy_bronte <- bronte %>%
+  unnest_tokens(word, text) %>%
+  anti_join(stop_words)
+```
+
+What are the most common words in these novels of the Brontë sisters?
+
+```{r dependson = "tidy_bronte"}
+tidy_bronte %>%
+  count(word, sort = TRUE)
+```
+
+
+
+Now, let's calculate the frequency for each word for the works of Jane Austen, the Brontë sisters, and H.G. Wells by binding the data frames together.
+
+```{r frequency, dependson = c("tidy_bronte", "tidy_hgwells", "tidy_books")}
+
+frequency <- bind_rows(mutate(tidy_bronte, author = "Brontë Sisters"),
+                       mutate(tidy_hgwells, author = "H.G. Wells"), 
+                       mutate(tidy_books, author = "Jane Austen")) %>% 
+  mutate(word = str_extract(word, "[a-z']+")) %>%
+  count(author, word) %>%
+  group_by(author) %>%
+  mutate(proportion = n / sum(n)) %>% 
+  select(-n) %>% 
+  spread(author, proportion) %>% 
+  gather(author, proportion, `Brontë Sisters`:`H.G. Wells`)
+```
+
+> NOTE: We use `str_extract()` here because the UTF-8 encoded texts from Project Gutenberg have some examples of words with underscores around them to indicate emphasis (like italics). The tokenizer treated these as words, but we don't want to count "\_any\_" separately from "any" as we saw in our initial data exploration before choosing to use `str_extract()`. 
+
+Now let's plot (Figure \@ref(fig:plotcompare)).
+
+```{r plotcompare, dependson = "frequency", fig.width=10, fig.height=5.5, fig.cap="Comparing the word frequencies of Jane Austen, the Brontë sisters, and H.G. Wells"}
+library(scales)
+# expect a warning about rows with missing values being removed
+ggplot(frequency, aes(x = proportion, y = `Jane Austen`, color = abs(`Jane Austen` - proportion))) +
+  geom_abline(color = "gray40", lty = 2) +
+  geom_jitter(alpha = 0.1, size = 2.5, width = 0.3, height = 0.3) +
+  geom_text(aes(label = word), check_overlap = TRUE, vjust = 1.5) +
+  scale_x_log10(labels = percent_format()) +
+  scale_y_log10(labels = percent_format()) +
+  scale_color_gradient(limits = c(0, 0.001), low = "darkslategray4", high = "gray75") +
+  facet_wrap(~author, ncol = 2) +
+  theme(legend.position="none") +
+  labs(y = "Jane Austen", x = NULL)
+```
+
+Overall, notice in Figure \@ref(fig:plotcompare) that the words in the Austen-Brontë panel are closer to the zero-slope line than in the Austen-Wells panel. Also notice that the words extend to lower frequencies in the Austen-Brontë panel; there is empty space in the Austen-Wells panel at low frequency. These characteristics indicate that Austen and the Brontë sisters use more similar words than Austen and H.G. Wells. Also, we see that not all the words are found in all three sets of texts and there are fewer data points in the panel for Austen and H.G. Wells.
+
+Let's quantify how similar and different these sets of word frequencies are using a correlation test. How correlated are the word frequencies between Austen and the Brontë sisters, and between Austen and Wells?
+
+```{r cor_test, dependson = "frequency"}
+cor.test(data = frequency[frequency$author == "Brontë Sisters",],
+         ~ proportion + `Jane Austen`)
+cor.test(data = frequency[frequency$author == "H.G. Wells",], 
+         ~ proportion + `Jane Austen`)
+```
+
+Just as we saw in the plots, the word frequencies are more correlated between the Austen and Brontë novels than between Austen and H.G. Wells.
+
+## Sentiment analysis with tidy data {#sentiment}
+
+Word frequency analysis is not the only useful feature of text mining. Let's dive into the topic of opinion mining or sentiment analysis. We can use the tools of text mining to approach the emotional content of text programatically.
+
+One way to analyze the sentiment of a text is to consider the text as a combination of its individual words and the sentiment content of the whole text as the sum of the sentiment content of the individual words. This isn’t the only way to approach sentiment analysis, but it is an often-used approach, and an approach that naturally takes advantage of the tidy tool ecosystem.
+
+### The `sentiments` dataset
+
+There are a variety of methods and dictionaries that exist for evaluating the opinion or emotion in text. The tidytext package contains several sentiment lexicons in the `sentiments` dataset.
+
+```{r}
+sentiments
+```
+
+
+The three general-purpose lexicons are
+
+* `AFINN` from [Finn Årup Nielsen](http://www2.imm.dtu.dk/pubdb/views/publication_details.php?id=6010),
+* `bing` from [Bing Liu and collaborators](https://www.cs.uic.edu/~liub/FBS/sentiment-analysis.html), and
+* `nrc` from [Saif Mohammad and Peter Turney](http://saifmohammad.com/WebPages/NRC-Emotion-Lexicon.htm).
+
+All three[^3] of these lexicons are based on unigrams, i.e., single words. These lexicons contain many English words and the words are assigned scores for positive/negative sentiment, and also possibly emotions like joy, anger, sadness, and so forth. All the information in these lexicons is tabulated in the `sentiments` dataset, and tidytext provides a function `get_sentiments()` to get specific sentiment lexicons without the columns that are not used in that lexicon.
+
+[^3]: The `nrc` lexicon categorizes words in a binary fashion ("yes"/"no") into categories of positive, negative, anger, anticipation, disgust, fear, joy, sadness, surprise, and trust. The `bing` lexicon categorizes words in a binary fashion into positive and negative categories. The `AFINN` lexicon assigns words with a score that runs between -5 and 5, with negative scores indicating negative sentiment and positive scores indicating positive sentiment. 
+
+```{r}
+get_sentiments("afinn")
+get_sentiments("bing")
+get_sentiments("nrc")
+```
+
+> NOTE: Dictionary-based methods like the ones we are discussing find the total sentiment of a piece of text by adding up the individual sentiment scores for each word in the text.
+
+It is important to keep in mind that these methods do not take into account qualifiers before a word, such as in “no good” or “not true”; a lexicon-based method like this is based on unigrams only. One caveat is that the size of the chunk of text that we use to add up unigram sentiment scores can have an effect on an analysis. A text the size of many paragraphs can often have positive and negative sentiment averaged out to about zero, while sentence-sized or paragraph-sized text often works better.
+
+### Sentiment analysis with inner join
+
+With data in a tidy format, sentiment analysis can be done as an inner join. This is another of the great successes of viewing text mining as a tidy data analysis task; much as removing stop words is an antijoin operation, performing sentiment analysis is an inner join operation.
+
+```{r tidy_books_sent}
+tidy_books <- austen_books() %>%
+  group_by(book) %>%
+  mutate(linenumber = row_number(),
+         chapter = cumsum(str_detect(text, regex("^chapter [\\divxlc]", 
+                                                 ignore_case = TRUE)))) %>%
+  ungroup() %>%
+  unnest_tokens(word, text)
+```
+
+Now that the text is in a tidy format with one word per row, we are ready to do the sentiment analysis. First, let's use the NRC lexicon and `filter()` for the joy words. Next, let's `filter()` the data frame with the text from the books for the words from *Emma* and then use `inner_join()` to perform the sentiment analysis. What are the most common joy words in *Emma*? Let's use `count()` from `dplyr`.
+
+```{r nrcjoy, dependson = "tidy_books_sent"}
+nrc_joy <- get_sentiments("nrc") %>% 
+  filter(sentiment == "joy")
+tidy_books %>%
+  filter(book == "Emma") %>%
+  inner_join(nrc_joy) %>%
+  count(word, sort = TRUE)
+```
+
+
+We can also examine how sentiment changes throughout each novel. We can do this with just a handful of lines that are mostly dplyr functions. First, we find a sentiment score for each word using the Bing lexicon and `inner_join()`. 
+
+Next, we count up how many positive and negative words there are in defined sections of each book. We define an `index` here to keep track of where we are in the narrative; this index (using integer division) counts up sections of 80 lines of text.
+
+
+> NOTE: The `%/%` operator does integer division (`x %/% y` is equivalent to `floor(x/y)`) so the index keeps track of which 80-line section of text we are counting up negative and positive sentiment in. 
+
+Small sections of text may not have enough words in them to get a good estimate of sentiment while really large sections can wash out narrative structure. For these books, using 80 lines works well, but this can vary depending on individual texts, how long the lines were to start with, etc. We then use `spread()` so that we have negative and positive sentiment in separate columns, and lastly calculate a net sentiment (positive - negative).
+
+```{r janeaustensentiment, dependson = "tidy_books"}
+jane_austen_sentiment <- tidy_books %>%
+  inner_join(get_sentiments("bing")) %>%
+  count(book, index = linenumber %/% 80, sentiment) %>%
+  spread(sentiment, n, fill = 0) %>%
+  mutate(sentiment = positive - negative)
+```
+
+Now we can plot these sentiment scores across the plot trajectory of each novel.
+
+```{r sentimentplot, dependson = "janeaustensentiment", fig.width=9, fig.height=10, fig.cap="Sentiment through the narratives of Jane Austen's novels"}
+
+ggplot(jane_austen_sentiment, aes(index, sentiment, fill = book)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~book, ncol = 2, scales = "free_x")
+```
+
+We can see in Figure \@ref(fig:sentimentplot) how the plot of each novel changes toward more positive or negative sentiment over the trajectory of the story.
+
+
+### Most common positive and negative words {#most-positive-negative}
+
+One advantage of having the data frame with both sentiment and word is that we can analyze word counts that contribute to each sentiment.
+
+```{r wordcounts, dependson = "tidy_books"}
+bing_word_counts <- tidy_books %>%
+  inner_join(get_sentiments("bing")) %>%
+  count(word, sentiment, sort = TRUE) %>%
+  ungroup()
+bing_word_counts
+```
+
+And pipe easily to `ggplot2`.
+
+```{r pipetoplot, dependson = "wordcounts", fig.width=8, fig.height=4, fig.cap="Words that contribute to positive and negative sentiment in Jane Austen's novels"}
+bing_word_counts %>%
+  group_by(sentiment) %>%
+  top_n(10) %>%
+  ungroup() %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(word, n, fill = sentiment)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~sentiment, scales = "free_y") +
+  labs(y = "Contribution to sentiment",
+       x = NULL) +
+  coord_flip()
+```
+
+Figure \@ref(fig:pipetoplot) lets us spot an anomaly in the sentiment analysis, "miss" as a negative word. But "miss" in Jane Austen's books is used for a "young, unmarried woman" and not in a negative sense. If needed, we could easily add "miss" to a custom stop-words list.
+
+```{r}
+custom_stop_words <- bind_rows(tibble(word = c("miss"), 
+                                          lexicon = c("custom")), 
+                               stop_words)
+custom_stop_words
+```
+
+### Wordclouds
+
+We've seen that this tidy text mining approach works well with `ggplot2`, but having our data in a tidy format is useful for other plots as well.
+
+For example, consider the `wordcloud` package, which uses base R graphics. Let's look at the most common words in Jane Austen's works as a whole again, but this time as a wordcloud in Figure \@ref(fig:firstwordcloud).
+
+```{r firstwordcloud, dependson = "tidy_books", fig.height=6, fig.width=6, fig.cap="The most common words in Jane Austen's novels"}
+library(wordcloud)
+tidy_books %>%
+  anti_join(stop_words) %>%
+  count(word) %>%
+  with(wordcloud(word, n, max.words = 100))
+```
+
+Now let's use `comparison.cloud` to tag positive and negative words.
+
+```{r wordcloud, dependson = "tidy_books", fig.height=5, fig.width=5, fig.cap="Most common positive and negative words in Jane Austen's novels"}
+library(reshape2)
+tidy_books %>%
+  inner_join(get_sentiments("bing")) %>%
+  count(word, sentiment, sort = TRUE) %>%
+  acast(word ~ sentiment, value.var = "n", fill = 0) %>%
+  comparison.cloud(colors = c("gray20", "gray80"),
+                   max.words = 100)
+```
+
+### Looking at units beyond just words
+
+Lots of useful work can be done by tokenizing at the word level, but sometimes it is useful or necessary to look at different units of text. Some sentiment analysis algorithms look beyond single-words to try to understan the sentiment of a sentence as a whole.
+
+If we tokenize by sentence, then we can use these algorithms.
+
+```{r PandP}
+PandP_sentences <- tibble(text = prideprejudice) %>% 
+  unnest_tokens(sentence, text, token = "sentences")
+```
+
+Let's look at just one [^4].
+
+```{r PandPsentences, dependson = "PandP"}
+PandP_sentences$sentence[2]
+```
+
+[^4]: The sentence tokenizing does seem to have a bit of trouble with UTF-8 encoded text, especially with sections of dialogue; it does much better with punctuation in ASCII. One possibility, if this is important, is to try using `iconv()`, with something like `iconv(text, to = 'latin1')` in a mutate statement before unnesting.
+
+Another option in `unnest_tokens()` is to split into tokens using a regex pattern. We could use this, for example, to split the text of Jane Austen's novels into a data frame by chapter.
+
+```{r austen_chapters, dependson = "tidy_books"}
+austen_chapters <- austen_books() %>%
+  group_by(book) %>%
+  unnest_tokens(chapter, text, token = "regex", 
+                pattern = "Chapter|CHAPTER [\\dIVXLC]") %>%
+  ungroup()
+austen_chapters %>% 
+  group_by(book) %>% 
+  summarise(chapters = n())
+```
+
+We can use tidy text analysis to ask questions such as what are the most negative chapters in each of Jane Austen’s novels?
+
+```{r chapters, dependson = "tidy_books"}
+bingnegative <- get_sentiments("bing") %>% 
+  filter(sentiment == "negative")
+wordcounts <- tidy_books %>%
+  group_by(book, chapter) %>%
+  summarize(words = n())
+tidy_books %>%
+  semi_join(bingnegative) %>%
+  group_by(book, chapter) %>%
+  summarize(negativewords = n()) %>%
+  left_join(wordcounts, by = c("book", "chapter")) %>%
+  mutate(ratio = negativewords/words) %>%
+  filter(chapter != 0) %>%
+  top_n(1) %>%
+  ungroup()
+```
+
+These are the chapters with the most sad words in each book, normalized for number of words in the chapter.
+
+

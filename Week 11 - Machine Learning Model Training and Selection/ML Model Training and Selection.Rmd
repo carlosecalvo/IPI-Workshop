@@ -1,0 +1,486 @@
+---
+title: "IPI Workshop - Machine Learning Model Training and Selection"
+author: "Carlos Calvo Hernandez"
+date: "4/3/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(dplyr, warn.conflicts = FALSE)
+library(dbplyr, warn.conflicts = FALSE)
+library(RPostgreSQL)
+library(dbplot)
+library(modeldb)
+library(tidypredict)
+library(tidyverse)
+library(lubridate)
+library(config)
+library(caret)
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE)
+```
+
+```{r dataport data, include=FALSE}
+dw <- get("dataport") #using a YAML config file, see https://db.rstudio.com/best-practices/deployment/ for more info
+
+con <- dbConnect(RPostgreSQL::PostgreSQL(),
+   #Driver = dw$driver,
+   host    = dw$server,
+   user    = dw$uid,
+   password    = dw$pwd,
+   port   = dw$port,
+   dbname = dw$database
+)
+src <- src_dbi(con, auto_disconnect = TRUE)
+# Import the data from Dataport
+weather_db <- tbl(con, in_schema("university", "weather"))
+hours_db <- tbl(con, in_schema("university", "electricity_egauge_hours"))
+temp_db <- tbl(con, in_schema("university", "indoor_temperature_sensor"))
+
+# Mutate to our convenience
+hours <- hours_db %>%
+  filter( localhour < "2016-01-13 00:00:00" & localhour > "2016-01-05 00:00:00") %>%
+  collect()
+temp <- temp_db %>%
+  filter( localminute < "2016-01-13 00:00:00" & localminute > "2016-01-05 00:00:00") %>%
+  collect() %>%
+  mutate(localhour = floor_date(localminute, "hour")) %>%
+  group_by(dataid, localhour) %>%
+  summarise(temp_f = mean(temp_f), temp_c = mean(temp_c))
+weather <- weather_db %>%
+  filter( localhour < "2016-01-13 00:00:00" & localhour > "2016-01-05 00:00:00") %>%
+  collect()
+
+dataport <- left_join(hours, weather, by = c("localhour"))
+dataport <- left_join(dataport, temp, by = c("dataid", "localhour"))
+dataport <- select(dataport, -c(diningroom2, pool2, ozone_error, temperature_error, dew_point_error, humidity_error, visibility_error, apparent_temperature_error, pressure_error, wind_speed_error, cloud_cover_error, precip_intensity_error, precip_type))
+
+# Filter the descriptors to get the "cleaned" dataset to work with
+nzv <- nearZeroVar(dataport)
+filteredDescr <- dataport[, -nzv]
+
+#Pre-process the data with median imputation
+preProc <- preProcess(filteredDescr, method = c("center", "scale", "medianImpute"))
+predicted <- predict(preProc, newdata = filteredDescr)
+
+
+inTraining <- createDataPartition(predicted$use, p = .01, list = FALSE)
+predicted <- predicted[ inTraining,]
+
+```
+
+## Model Selection
+
+### Model Training and Parameter Tuning
+
+The [`caret`](http://cran.r-project.org/web/packages/caret/index.html) package has several functions that attempt to streamline the model building and evaluation process.
+
+The `train` function can be used to
+
+ - evaluate, using resampling, the effect of model tuning parameters on performance
+ - choose the "optimal" model across these parameters
+ - estimate model performance from a training set
+
+First, a specific model must be chosen. Currently, `r I(length(unique(modelLookup()$model)))` are available using [`caret`](http://cran.r-project.org/web/packages/caret/index.html); see [`train` Model List](https://topepo.github.io/caret/available-models.html) or [`train` Models By Tag](https://topepo.github.io/caret/train-models-by-tag.html) for details. On these pages, there are lists of tuning parameters that can potentially be optimized. [User-defined models](https://topepo.github.io/caret/using-your-own-model-in-train.html) can also be created.
+
+The first step in tuning the model is to choose a set of parameters to evaluate. For example, if fitting a Partial Least Squares (PLS) model, the number of PLS components to evaluate must be specified.
+
+![](/Volumes/GoogleDrive/My Drive/IPI/Capacity markets/R/ML Dataport/TrainAlgo.png)
+
+Once the model and tuning parameter values have been defined, the type of resampling should be also be specified. Currently, *k*-fold cross-validation (once or repeated), leave-one-out cross-validation and bootstrap (simple estimation or the 632 rule) resampling methods can be used by `train`. After resampling, the process produces a profile of performance measures is available to guide the user as to which tuning parameter values should be chosen. By default, the function automatically chooses the tuning parameters associated with the best value, although different algorithms can be used (see details below).
+
+We'll use the same `predicted` imputed dataset from Dataport that we used last week. It's subset to 1% of the total observations to make calculations easier on R.
+
+```{r}
+glimpse(predicted)
+```
+
+The function `createDataPartition` can be used to create a stratified random sample of the data into training and test sets:
+
+```{r train_dataport2}
+library(caret)
+set.seed(998)
+inTraining <- createDataPartition(predicted$use, p = .75, list = FALSE)
+training <- predicted[ inTraining,]
+testing  <- predicted[-inTraining,]
+```
+
+We will use these data illustrate functionality on this (and other) pages.
+
+### Basic Parameter Tuning
+
+By default, simple bootstrap resampling is used for line 3 in the algorithm above. Others are available, such as repeated *K*-fold cross-validation, leave-one-out etc. The function `trainControl` can be used to specifiy the type of resampling:
+
+```{r train_control,tidy=FALSE}
+fitControl <- trainControl(# 5-fold CV
+                           method = "repeatedcv",
+                           number = 5,
+                           # repeated five times
+                           repeats = 5)
+```
+
+More information about `trainControl` is given in the [caret documentation](https://topepo.github.io/caret/model-training-and-tuning.html#custom).
+
+The first two arguments to `train` are the predictor and outcome data objects, respectively. The third argument, `method`, specifies the type of model (see [`train` Model List](https://topepo.github.io/caret/available-models.html') or [`train` Models By Tag](https://topepo.github.io/caret/train-models-by-tag.html). To illustrate, we will fit a boosted tree model via the [`gbm`](http://cran.r-project.org/web/packages/gbm/index.html) package. The basic syntax for fitting this model using repeated cross-validation is shown below:
+
+```{r train_gbm1,cache=TRUE,tidy=FALSE}
+set.seed(825)
+gbmFit1 <- train(use ~ ., data = training, 
+                 method = "gbm", 
+                 trControl = fitControl,
+                 ## This last option is actually one
+                 ## for gbm() that passes through
+                 verbose = FALSE)
+gbmFit1
+```
+
+For a [gradient boosting machine](https://en.wikipedia.org/wiki/Gradient_boosting) (GBM)[^1] model, there are three main tuning parameters:
+
+[^1]: Gradient boosting is a machine learning technique for regression and classification problems, which produces a prediction model in the form of an ensemble of weak prediction models, typically decision trees. It builds the model in a stage-wise fashion like other boosting methods do, and it generalizes them by allowing optimization of an arbitrary differentiable loss function.
+
+
+ - number of iterations, i.e. trees, (called `n.trees` in the `gbm` function)
+ - complexity of the tree, called `interaction.depth` 
+ - learning rate: how quickly the algorithm adapts, called `shrinkage`
+ - the minimum number of training set samples in a node to commence splitting (`n.minobsinnode`)
+
+The default values tested for this model are shown in the first two columns (`shrinkage` and `n.minobsinnode` are not shown beause the grid set of candidate models all use a single value for these tuning parameters). `train` works with specific models.
+
+For these models,  `train` can automatically create a grid of tuning parameters. By default, if *p* is the number of tuning parameters, the grid size is *3\^p*. 
+
+### Customizing the Tuning Process
+
+There are a few ways to customize the process of selecting tuning/complexity parameters and building the final model.
+
+#### Alternate Tuning Grids
+
+The tuning parameter grid can be specified by the user. The argument `tuneGrid` can take a data frame with columns for each tuning parameter. The column names should be the same as the fitting function's arguments. For the previous example, the names would be `gamma` and `lambda`. `train` will tune the model over each combination of values in the rows.
+
+For the boosted tree model, we can fix the learning rate and evaluate more than three values of `n.trees`:
+
+```{r train_gbm2,cache=TRUE,tidy=FALSE,results='hide'}
+gbmGrid <-  expand.grid(interaction.depth = c(1, 5, 9), 
+                        n.trees = (1:5)*50, 
+                        shrinkage = 0.1,
+                        n.minobsinnode = 20)
+                        
+nrow(gbmGrid)
+set.seed(825)
+gbmFit2 <- train(use ~ ., data = training, 
+                 method = "gbm", 
+                 trControl = fitControl, 
+                 verbose = FALSE, 
+                 ## Now specify the exact models 
+                 ## to evaluate:
+                 tuneGrid = gbmGrid)
+gbmFit2
+```
+```{r train_gbm2_print,echo=FALSE}
+gbmOut <- capture.output(print(gbmFit2, digits = 2))
+text2 <- c(gbmOut[1:18],
+           "  :                   :        :         : ",
+           gbmOut[(length(gbmOut)-10):length(gbmOut)])
+cat(paste(text2, collapse = "\n"))
+```
+
+
+Another option is to use a random sample of possible tuning parameter combinations, i.e. "random search"[(pdf)](http://www.jmlr.org/papers/volume13/bergstra12a/bergstra12a.pdf). This functionality is described on [this page](https://topepo.github.io/caret/random-hyperparameter-search.html).
+
+To use a random search, use the option `search = "random"` in the call to `trainControl`. In this situation, the `tuneLength` parameter defines the total number of parameter combinations that will be evaluated.
+
+#### Plotting the Resampling Profile
+
+The `plot` function can be used to examine the relationship between the estimates of performance and the tuning parameters. For example, a simple invokation of the function shows the results for the first performance measure:
+
+```{r train_plot1,fig.width=7,fig.height=4}
+trellis.par.set(caretTheme())
+plot(gbmFit2)  
+```
+
+Other performance metrics can be shown using the `metric` option:
+
+```{r train_plot2,fig.width=7,fig.height=4}
+trellis.par.set(caretTheme())
+plot(gbmFit2, metric = "MAE")
+```
+
+Other types of plot are also available. See `?plot.train` for more details. The code below shows a heatmap of the results:
+
+```{r train_plot3,tidy=FALSE,fig.width=7,fig.height=4}
+trellis.par.set(caretTheme())
+plot(gbmFit2, metric = "MAE", plotType = "level",
+     scales = list(x = list(rot = 90)))
+```
+
+A `ggplot` method can also be used:
+
+```{r train_ggplot1,fig.width=8.5,fig.height=4}  
+ggplot(gbmFit2)  
+```
+
+There are also plot functions that show more detailed representations of the resampled estimates. See `?xyplot.train` for more details.
+
+From these plots, a different set of tuning parameters may be desired. To change the final values without starting the whole process again, the `update.train` can be used to refit the final model. See `?update.train`
+
+#### Alternate Performance Metrics
+
+
+The user can change the metric used to determine the best settings. By default, RMSE, *R*^2^, and the mean absolute error (MAE) are computed for regression while accuracy and Kappa are computed for classification. Also by default, the parameter values are chosen using RMSE and accuracy, respectively for regression and classification. The `metric` argument of the `train` function allows the user to control which the optimality criterion is used. For example, in problems where there are a low percentage of samples in one class, using  `metric = "Kappa"` can improve quality of the final model.
+
+If none of these parameters are satisfactory, the user can also compute custom performance metrics. The `trainControl` function has a argument called `summaryFunction` that specifies a function for computing performance. The function should have these arguments:
+
+ - `data` is a reference for a data frame or matrix with columns called `obs` and `pred` for the observed and predicted outcome values (either numeric data for regression or character values for classification). Currently, class probabilities are not passed to the function. The values in data are the held-out predictions (and their associated reference values) for a single combination of tuning parameters. If the `classProbs` argument of the `trainControl` object is set to `TRUE`, additional columns in `data` will be present that contains the class probabilities. The names of these columns are the same as the  class levels. Also, if `weights` were specified in the call to `train`, a column called `weights` will also be in the data set. Additionally, if the `recipe` method for `train` was used (see [this section of documentation](topepo.github.io/caret/using-recipes-with-train)), other variables not used in the model will also be included. This can be accomplished by adding a role in the recipe of `"performance var"`. An example is given in the recipe section of this site. 
+ - `lev` is a character string that has the outcome factor levels taken from the training data. For regression, a value of `NULL` is passed into the function.
+ - `model` is a character string for the model being used (i.e. the value passed to the  `method` argument of `train`).
+
+The output to the function should be a vector of numeric summary metrics with non-null names. By default, `train` evaluate classification models in terms of the predicted classes. Optionally, class probabilities can also be used to measure performance. To obtain predicted class probabilities within the resampling process, the argument `classProbs` in `trainControl` must be set to `TRUE`. This merges columns of probabilities into the predictions generated from each resample (there is a column per class and the column names are the class names).
+
+As shown in the last section, custom functions can be used to calculate performance scores that are averaged over the resamples. Another built-in function, `twoClassSummary`, will compute the sensitivity, specificity and area under the ROC curve:
+
+```{r train_summary1}
+head(twoClassSummary)
+```
+
+To rebuild the boosted tree model using this criterion, we can see the relationship between the tuning parameters and the area under the RMSE curve using the following code:
+
+```{r train_summary2,cache=TRUE,tidy=FALSE,results='hide', eval=FALSE}
+fitControl <- trainControl(method = "repeatedcv",
+                           number = 5,
+                           repeats = 5,
+                           ## Estimate class probabilities
+                           classProbs = TRUE,
+                           ## Evaluate performance using 
+                           ## the following function
+                           summaryFunction = twoClassSummary)
+set.seed(825)
+gbmFit3 <- train(use ~ ., data = training, 
+                 method = "gbm", 
+                 trControl = fitControl, 
+                 verbose = FALSE, 
+                 tuneGrid = gbmGrid,
+                 ## Specify which metric to optimize
+                 metric = "Rsquared")
+gbmFit3
+```
+
+
+
+## Choosing the Final Model
+
+
+Another method for customizing the tuning process is to modify the algorithm that is used to select the "best" parameter values, given the performance numbers. By default, the  `train` function chooses the model with the largest performance value (or smallest, for mean squared error in regression models). Other schemes for selecting model can be used. 
+
+`train` allows the user to specify alternate rules for selecting the final model. The argument  `selectionFunction` can be used to supply a function to algorithmically determine the final model. There are three existing functions in the package: `best` chooses the largest/smallest value, `oneSE` attempts to capture the spirit of [Breiman et al (1984)](http://books.google.com/books/about/Classification_and_Regression_Trees.html?id=JwQx-WOmSyQC) "the 'one standard error rule'", and `tolerance` selects the least complex model within some percent tolerance of the best value. See `?best` for more details.
+
+User-defined functions can be used, as long as they have the following arguments:
+
+ - `x` is a data frame containing the tune parameters and their associated performance metrics. Each row corresponds to a different tuning parameter combination.
+ - `metric` a character string indicating which performance metric should be optimized (this is passed in directly from the `metric` argument of  `train`.
+ - `maximize` is a single logical value indicating whether larger values of the performance metric are better (this is also directly passed from the call to  `train`).
+
+The function should output a single integer indicating which row in `x` is chosen.
+
+```{r bestGBM,echo=FALSE}
+printSelected <- function(x) {
+    tmp <- x$bestTune
+    tmp <- paste(names(tmp), "=", tmp)
+    paste(tmp, collapse = ", ")
+  }
+```  
+
+
+The main issue with these functions is related to ordering the models from simplest to complex. In some cases, this is easy (e.g. simple trees, partial least squares), but in cases such as this model, the ordering of models is subjective. For example, is a boosted tree model using 100 iterations and a tree depth of 2 more complex than one with 50 iterations and a depth of 8? The package makes some choices regarding the orderings. In the case of boosted trees, the package assumes that increasing the number of iterations adds complexity at a faster rate than increasing the tree depth, so models are ordered on the number of iterations then ordered with depth. See `?best` for more examples for specific models.
+
+
+
+
+
+## Appendix: The `trainControl` Function Cheatsheet
+
+The function `trainControl` generates parameters that further control how models are created, with possible values:
+
+ - `method`: The resampling method: `"boot"`, `"cv"`, `"LOOCV"`, `"LGOCV"`, `"repeatedcv"`, `"timeslice"`, `"none"` and `"oob"`. The last value, out-of-bag estimates, can only be used by random forest, bagged trees, bagged earth, bagged flexible discriminant analysis, or conditional tree forest models. GBM models are not included (the [`gbm`](http://cran.r-project.org/web/packages/gbm/index.html) package maintainer has indicated that it would not be a good idea to choose tuning parameter values based on the model OOB error estimates with boosted trees). Also, for leave-one-out cross-validation, no uncertainty estimates are given for the resampled performance measures.
+ - `number` and `repeats`: `number` controls with the number of folds in *K*-fold cross-validation or number of resampling iterations for bootstrapping and leave-group-out cross-validation. `repeats` applied only to repeated *K*-fold cross-validation. Suppose that `method = "repeatedcv"`, `number = 10` and `repeats = 3`,then three separate 10-fold cross-validations are used as the resampling scheme.
+ - `verboseIter`: A logical for printing a training log.
+ - `returnData`: A logical for saving the data into a slot called `trainingData`.
+ - `p`: For leave-group out cross-validation:  the training percentage
+ - For `method = "timeslice"`, `trainControl` has options `initialWindow`, `horizon` and `fixedWindow` that govern how [cross-validation can be used for time series data.](data-splitting.html)
+ - `classProbs`: a logical value determining whether class probabilities should be computed for held-out samples during resample.
+ - `index` and `indexOut`: optional lists with elements for each resampling iteration. Each list element is the sample rows used     for training at that iteration or should be held-out. When these  values are not specified, `train` will generate them.
+ - `summaryFunction`: a function to computed alternate performance summaries. 
+ - `selectionFunction`: a function to choose the optimal tuning parameters. and examples.
+ - `PCAthresh`, `ICAcomp` and `k`: these are all options to pass to the `preProcess` function (when used).
+ - `returnResamp`: a character string containing one of the following values: `"all"`, `"final"` or `"none"`. This specifies how much of the resampled performance  measures to save.
+ - `allowParallel`: a logical that governs  whether `train` should [use parallel processing (if availible).](parallel-processing.html)
+
+There are several other options not discussed here.
+
+
+## Appendix: Model Comparison
+
+In this final section, we are going to compare different predictive models and choose the best one using the tools presented in the previous sections.
+
+For this section, we are going to use the `churn` data. Below, we see that about 15% of the customers churn. It is important to maintain this proportion in all of the folds.
+
+```{r churndata}
+library("C50")
+data(churn)
+table(churnTrain$churn)/nrow(churnTrain)
+```
+
+Previously, when creating a train control object, we specified the method as `"cv"` and the number of folds. Now, as we want the same folds to be re-used over multiple model training rounds, we are going to pass the train/test splits directly. These splits are created with the `createFolds` function, which creates a list (here of length 5) containing the element indices for each fold.
+
+```{r createFolds}
+myFolds <- createFolds(churnTrain$churn, k = 5)
+str(myFolds)
+```
+
+We can easily verify that the folds maintain the proportion of yes/no results.
+```{r foldprop}
+sapply(myFolds, function(i) {
+    table(churnTrain$churn[i])/length(i)
+})
+```
+
+
+We can now create a train control object to be reused consistently for different model trainings.
+
+```{r trctrol}
+myControl <- trainControl(
+  summaryFunction = twoClassSummary,
+  classProb = TRUE,
+  verboseIter = FALSE,
+  savePredictions = TRUE,
+  index = myFolds
+)
+```
+
+### `glmnet` model
+
+The `glmnet` is a linear model with built-in variable selection and
+coefficient regularisation.
+
+```{r glmnetmodel, fig.cap=""}
+glm_model <- train(churn ~ .,
+                   churnTrain,
+                   metric = "ROC", 
+                   method = "glmnet",
+                   tuneGrid = expand.grid(
+                       alpha = 0:1,
+                       lambda = 0:10/10),
+                   trControl = myControl)
+print(glm_model)
+plot(glm_model)
+```
+
+
+Below, we are going to repeat this same modelling with a variety of different classifiers, some of which we haven't looked at. This illustrates another advantage of of using **meta-packages** such as  `caret"`, that provide a consistant interface to different backends (in this case for machine learning). Once we have mastered the interface, it becomes easy to apply it to a new backend. 
+
+Note that some of the model training below will take some time to run, depending on the tuning parameter settings.
+
+### random forest model
+
+```{r rfmodel, cache=TRUE, fig.cap=""}
+rf_model <- train(churn ~ .,
+                  churnTrain,
+                  metric = "ROC", 
+                  method = "ranger",
+                  # tuneGrid = expand.grid(
+                  #     mtry = c(2, 5, 10, 19),
+                  #     splitrule = c("gini", "extratrees")),
+                  trControl = myControl)
+print(rf_model)
+plot(rf_model)
+```
+
+### kNN model
+
+```{r knnmodel, cache=TRUE, fig.cap=""}	
+knn_model <- train(churn ~ .,
+                   churnTrain,
+                   metric = "ROC", 
+                   method = "knn",
+                   tuneLength = 20,
+                   trControl = myControl)
+print(knn_model)
+plot(knn_model)
+```
+
+### Support vector machine model
+
+```{r svmmodel, cache=TRUE, fig.cap="", warning=FALSE}
+svm_model <- train(churn ~ .,
+                   churnTrain,
+                   metric = "ROC", 
+                   method = "svmRadial",
+                   tuneLength = 10,
+                   trControl = myControl)
+print(svm_model)
+plot(svm_model)
+```
+
+### Naive Bayes
+
+```{r nbmodel, fig.cap=""}
+nb_model <- train(churn ~ .,
+                  churnTrain,
+                  metric = "ROC", 
+                  method = "naive_bayes",
+                  trControl = myControl)
+print(nb_model)
+plot(nb_model)
+```
+
+### Comparing models
+
+We can now use the `caret::resamples` function that will compare the models and pick the one with the highest AUC and lowest AUC standard deviation.
+
+```{r resamples}
+model_list <- list(glmmet = glm_model,
+                   rf = rf_model,
+                   knn = knn_model,
+                   svm = svm_model,
+                   nb = nb_model)
+resamp <- resamples(model_list)
+resamp
+summary(resamp)
+```
+
+```{r plotresam, fig.cap = "Comparing distributions of AUC values for various models."}
+lattice::bwplot(resamp, metric = "ROC")
+```
+
+### Pre-processing
+
+The random forest appears to be the best one. This might be related to
+its ability to cope well with different types of input and require
+little pre-processing. 
+
+```{r svmmodel2, cache=TRUE, fig.cap="", warning=FALSE}
+svm_model1 <- train(churn ~ .,
+                    churnTrain,
+                    metric = "ROC", 
+                    method = "svmRadial",
+                    tuneLength = 10,
+                    trControl = myControl)
+svm_model2 <- train(churn ~ .,
+                    churnTrain[, c(2, 6:20)],
+                    metric = "ROC", 
+                    method = "svmRadial",
+                    preProcess = c("scale", "center", "pca"),
+                    tuneLength = 10,
+                    trControl = myControl)
+model_list <- list(svm1 = svm_model1,
+                   svm2 = svm_model2)
+resamp <- resamples(model_list)
+summary(resamp)
+bwplot(resamp, metric = "ROC")
+```
+
+### Predict using the best model
+
+Now, choose the best model using the `resamples` function and compare the results and apply it to predict the `churnTest` labels.
+
+```{r}
+p <- predict(rf_model, churnTest)
+confusionMatrix(p, churnTest$churn)
+```

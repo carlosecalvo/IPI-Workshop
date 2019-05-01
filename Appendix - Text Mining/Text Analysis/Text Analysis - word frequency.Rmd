@@ -1,0 +1,161 @@
+---
+author: "Carlos Calvo Hernandez"
+date: "4/17/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+library(tidyverse)  # tidy data wrangling
+library(tidytext) # tidy text analysis 
+library(tidymodels) # tidy ML modeling 
+library(textrecipes) # recipes package extensions
+
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, cache = TRUE)
+```
+
+# Word and document frequency
+
+## Term frequency - Inverse document frquency: tf-idf
+
+A central question in text mining and natural language processing is how to quantify what a document is about. Can we do this by looking at the words that make up the document? One measure of how important a word may be is its *term frequency* (tf), how frequently a word occurs in a document. There are words in a document, however, that occur many times but may not be important; in English, these are probably words like "the", "is", "of", and so forth. We might take the approach of adding words like these to a list of stop words and removing them before analysis, but it is possible that some of these words might be more important in some documents than others. A list of stop words is not a very sophisticated approach to adjusting term frequency for commonly used words.
+
+Another approach is to look at a term's *inverse document frequency* (idf), which decreases the weight for commonly used words and increases the weight for words that are not used very much in a collection of documents. This can be combined with term frequency to calculate a term's *tf-idf* (the two quantities multiplied together), the frequency of a term adjusted for how rarely it is used. 
+
+
+> The statistic **tf-idf** is intended to measure how important a word is to a document in a collection (or corpus) of documents, for example, to one novel in a collection of novels or to one website in a collection of websites. 
+
+It is a rule-of-thumb or heuristic quantity; while it has proved useful in text mining, search engines, etc., its theoretical foundations are considered less than firm by information theory experts. The inverse document frequency for any given term is defined as
+
+$$idf(\text{term}) = \ln{\left(\frac{n_{\text{documents}}}{n_{\text{documents containing term}}}\right)}$$
+
+We can use tidy data principles to approach tf-idf analysis and use consistent, effective tools to quantify how important various terms are in a document that is part of a collection.
+
+## Term frequency in Jane Austen's novels
+
+What are the most commonly used words in Jane Austen's novels?
+
+```{r book_words}
+library(janeaustenr)
+book_words <- austen_books() %>%
+  unnest_tokens(word, text) %>%
+  count(book, word, sort = TRUE)
+total_words <- book_words %>% 
+  group_by(book) %>% 
+  summarize(total = sum(n))
+book_words <- left_join(book_words, total_words)
+book_words
+```
+
+There is one row in this `book_words` data frame for each word-book combination; `n` is the number of times that word is used in that book and `total` is the total words in that book. The usual suspects are here with the highest `n`, "the", "and", "to", and so forth. 
+
+Let's look at the distribution of `n/total` for each novel, the number of times a word appears in a novel divided by the total number of terms (words) in that novel. This is exactly what **term frequency** is.
+
+```{r plottf, dependson = "book_words", fig.height=9, fig.width=9, fig.cap="Term Frequency Distribution in Jane Austen's Novels"}
+library(ggplot2)
+ggplot(book_words, aes(n/total, fill = book)) +
+  geom_histogram(show.legend = FALSE) +
+  xlim(NA, 0.0009) +
+  facet_wrap(~book, ncol = 2, scales = "free_y")
+```
+
+There are very long tails to the right for these novels (those extremely common words!) that we have not shown in these plots. These plots exhibit similar distributions for all the novels, with many words that occur rarely and fewer words that occur frequently.
+
+## Zipf's Law
+
+These types of long-tailed distributions are so common in any given corpus of natural language that the relationship between the frequency that a word is used and its rank has been the subject of study; a classic version of this relationship is called Zipf's law, after George Zipf, a 20th century American linguist. 
+
+
+> Zipf's law states that the frequency that a word appears is inversely proportional to its rank. 
+
+
+Let's examine Zipf's law for Jane Austen's novels.
+
+```{r freq_by_rank, dependson = book_words}
+freq_by_rank <- book_words %>% 
+  group_by(book) %>% 
+  mutate(rank = row_number(), 
+         `term frequency` = n/total)
+freq_by_rank
+```
+
+Now, we can calculate the term frequency in the same way we did before. Zipf's law is often visualized by plotting rank on the x-axis and term frequency on the y-axis, on logarithmic scales. Plotting this way, an inversely proportional relationship will have a constant, negative slope.
+
+```{r zipf, dependson = "freq_by_rank", fig.width=6, fig.height=5, fig.cap="Zipf's law for Jane Austen's novels"}
+freq_by_rank %>% 
+  ggplot(aes(rank, `term frequency`, color = book)) + 
+  geom_line(size = 1.1, alpha = 0.8, show.legend = FALSE) + 
+  scale_x_log10() +
+  scale_y_log10()
+```
+
+We see that all six of Jane Austen's novels are similar to each other, and that the relationship between rank and frequency does have negative slope. It is not quite constant, though; perhaps we could view this as a broken [power law](https://en.wikipedia.org/wiki/Power_law) with, say, three sections. Let's see what the exponent of the power law is for the middle section of the rank range.
+
+```{r lower_rank, dependson = "freq_by_rank"}
+rank_subset <- freq_by_rank %>% 
+  filter(rank < 500,
+         rank > 10)
+lm(log10(`term frequency`) ~ log10(rank), data = rank_subset)
+```
+
+Classic versions of Zipf's law have
+
+$$\text{frequency} \propto \frac{1}{\text{rank}}$$
+
+and we have in fact gotten a slope close to -1 here. Let's plot this fitted power law with the data to see how it looks.
+
+```{r zipffit, dependson = "freq_by_rank", fig.width=6, fig.height=5, fig.cap="Fitting an exponent for Zipf's law with Jane Austen's novels"}
+freq_by_rank %>% 
+  ggplot(aes(rank, `term frequency`, color = book)) + 
+  geom_abline(intercept = -0.62, slope = -1.1, color = "gray50", linetype = 2) +
+  geom_line(size = 1.1, alpha = 0.8, show.legend = FALSE) + 
+  scale_x_log10() +
+  scale_y_log10()
+```
+
+We have found a result close to the classic version of Zipf’s law for the corpus of Jane Austen’s novels. The deviations we see here at high rank are not uncommon for many kinds of language; a corpus of language often contains fewer rare words than predicted by a single power law. The deviations at low rank are more unusual. Jane Austen uses a lower percentage of the most common words than many collections of language. This kind of analysis could be extended to compare authors, or to compare any other collections of text; it can be implemented simply using tidy data principles.
+
+## The `bind_tf_idf` function
+
+The idea of tf-idf is to find the important words for the content of each document by decreasing the weight for commonly used words and increasing the weight for words that are not used very much in a collection or corpus of documents, in this case, the group of Jane Austen's novels as a whole. Calculating tf-idf attempts to find the words that are important (i.e., common) in a text, but not *too* common. Let's do that now.
+
+The `bind_tf_idf` function in the `tidytext` package takes a tidy text dataset as input with one row per token, per document. One column (`word` here) contains the terms/tokens, one column contains the documents (`book` in this case), and the last necessary column contains the counts, how many times each document contains each term (`n` in this example).
+
+```{r tf_idf, dependson = "book_words"}
+book_words <- book_words %>%
+  bind_tf_idf(word, book, n)
+book_words
+```
+
+Notice that idf and thus tf-idf are zero for extremely common words. These are all words that appear in all six of Jane Austen's novels, so the idf term (which will then be the natural log of 1) is zero. The inverse document frequency (and thus tf-idf) is very low (near zero) for words that occur in many of the documents in a collection; this is how this approach decreases the weight for common words. The inverse document frequency will be a higher number for words that occur in fewer of the documents in the collection. 
+
+Let's look at terms with high tf-idf in Jane Austen's works.
+
+```{r desc_idf, dependson = "tf_idf"}
+book_words %>%
+  select(-total) %>%
+  arrange(desc(tf_idf))
+```
+
+These are all proper nouns and arguably very important to these specific texts. 
+
+> Some of the values for idf are the same for different terms because there are 6 documents in this corpus and we are seeing the numerical value for $\ln(6/1)$, $\ln(6/2)$, etc. 
+
+
+Let's look at a visualization for these high tf-idf words.
+
+```{r plotseparate, dependson = "plot_austen", fig.height=10, fig.width=9, fig.cap="Highest tf-idf words in each of Jane Austen's Novels"}
+book_words %>%
+  arrange(desc(tf_idf)) %>%
+  mutate(word = factor(word, levels = rev(unique(word)))) %>% 
+  group_by(book) %>% 
+  top_n(15) %>% 
+  ungroup() %>%
+  ggplot(aes(word, tf_idf, fill = book)) +
+  geom_col(show.legend = FALSE) +
+  labs(x = NULL, y = "tf-idf") +
+  facet_wrap(~book, ncol = 2, scales = "free") +
+  coord_flip()
+```
+
+

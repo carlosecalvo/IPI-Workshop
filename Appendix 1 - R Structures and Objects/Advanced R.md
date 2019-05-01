@@ -68,7 +68,7 @@ lobstr::obj_addr(x)
 ```
 
 ```
-[1] "0x7fce16cf0d88"
+[1] "0x7febeec57ad8"
 ```
 
 ```r
@@ -76,7 +76,7 @@ lobstr::obj_addr(y)
 ```
 
 ```
-[1] "0x7fce16cf0d88"
+[1] "0x7febeec57ad8"
 ```
 
 
@@ -169,15 +169,15 @@ lobstr::ref(l1, l2)
 ```
 
 ```
-█ [1:0x7fce18279238] <list> 
-├─[2:0x7fce188474a0] <dbl> 
-├─[3:0x7fce18847468] <dbl> 
-└─[4:0x7fce18847430] <dbl> 
+█ [1:0x7febf061c868] <list> 
+├─[2:0x7febefd03218] <dbl> 
+├─[3:0x7febefd031e0] <dbl> 
+└─[4:0x7febefd031a8] <dbl> 
  
-█ [5:0x7fce16eb5038] <list> 
-├─[2:0x7fce188474a0] 
-├─[3:0x7fce18847468] 
-└─[6:0x7fce1774fb90] <dbl> 
+█ [5:0x7febedf58958] <list> 
+├─[2:0x7febefd03218] 
+├─[3:0x7febefd031e0] 
+└─[6:0x7febee7a8658] <dbl> 
 ```
 
 
@@ -210,7 +210,7 @@ lobstr::obj_addrs(d1)
 ```
 
 ```
-[1] "0x7fce188e04c8" "0x7fce188e0478"
+[1] "0x7febf08528f8" "0x7febf08528a8"
 ```
 
 ```r
@@ -218,7 +218,7 @@ lobstr::obj_addrs(d2)
 ```
 
 ```
-[1] "0x7fce188e04c8" "0x7fce177837e8"
+[1] "0x7febf08528f8" "0x7febefe32f08"
 ```
 
 ```r
@@ -226,7 +226,7 @@ lobstr::obj_addrs(d3)
 ```
 
 ```
-[1] "0x7fce17ba3988" "0x7fce17ba3938"
+[1] "0x7febf09fc928" "0x7febf09fc8d8"
 ```
 
 Copy-on-modify: Character vectors
@@ -240,11 +240,11 @@ lobstr::ref(x, character = T)
 ```
 
 ```
-█ [1:0x7fce1855f7a8] <chr> 
-├─[2:0x7fce13009798] <string: "a"> 
-├─[2:0x7fce13009798] 
-├─[3:0x7fce137004d8] <string: "abc"> 
-└─[4:0x7fce113c56d0] <string: "d"> 
+█ [1:0x7febedfc0588] <chr> 
+├─[2:0x7febe9a26f98] <string: "a"> 
+├─[2:0x7febe9a26f98] 
+├─[3:0x7febeeb56e58] <string: "abc"> 
+└─[4:0x7febea1c1de0] <string: "d"> 
 ```
 
 Object size

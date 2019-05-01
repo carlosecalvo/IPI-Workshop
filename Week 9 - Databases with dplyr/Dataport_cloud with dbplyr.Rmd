@@ -1,0 +1,325 @@
+---
+title: "Pecan Street Data with dbplyr"
+author: "Carlos Calvo Hernandez"
+date: "3/21/2019"
+output: html_document
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Pecan Street Data with `dbplyr`
+
+## Background
+
+As quoted from the **dataport.cloud** website: "More than the largest source of energy data and water data." The data ranges from utility market operations to appliance-level consumer behavioral research.
+
+## Dataport.cloud database
+
+In order to access SQL databases and handle the data properly we are gonna need a few libraries:
+```{r, message=FALSE}
+library(dplyr, warn.conflicts = FALSE)
+library(dbplyr, warn.conflicts = FALSE)
+library(RPostgreSQL)
+library(dbplot)
+library(modeldb)
+library(tidypredict)
+library(tidyverse)
+library(lubridate)
+library(leaflet)
+```
+
+Some of these libraries are new to us and we will only use them for SQL database connections.[^1]
+
+[^1]: Source: [Databases using R](https://db.rstudio.com)
+
+(@) `dplyr`
+
+As well as working with local in-memory data stored in data frames, `dplyr` also works with remote on-disk data stored in databases. This is particularly useful in two scenarios:
+
+- Your data is already in a database.
+
+- You have so much data that it does not all fit into memory simultaneously and you need to use some external storage engine.
+
+(@) `dbplyr`
+
+Provides `dplyr` with the tools to use databases. The DBI package provides a common interface that allows dplyr to work with many different databases using the same code. DBI is automatically installed with dbplyr, but you need to install a specific backend for the database that you want to connect to.
+
+(@) `RPostgreSQL`
+
+One of the most common used backends. It allows connections to **Postgres** and **Redshift** databases. This package acts as the database driver and the DBI interface. For more info go to [RPostgreSQL on CRAN.](https://cran.r-project.org/web/packages/RPostgreSQL/)
+
+(@) `dbplot`
+
+It allows to create visualizations of the information in the database without having to import the data into memeory. Leverages `dplyr` to process the calculations of a plot inside a database. This package provides helper functions that abstract the work at three levels:
+
+- Functions that ouput a ggplot2 object.
+- Functions that outputs a data.frame object with the calculations.
+- Creates the formula needed to calculate bins for a Histogram or a Raster plot.
+
+(@) `modeldb`
+
+Uses 'dplyr' and 'tidyeval' to fit statistical models inside the database. It currently supports K-means and linear regression models.
+
+(@) `tidypredict`
+
+Runs predictions inside the database. `tidypredict` parses a fitted R model object, and returns a formula in ‘Tidy Eval’ code that calculates the predictions.
+
+It works with several databases back-ends because it leverages `dplyr` and `dbplyr` for the final SQL translation of the algorithm. It currently supports `lm()`, `glm()`, `randomForest()` and `ranger()` models.
+
+(@) The rest...
+
+The usual suspects, `tidyverse` for data handling, `lubridate` for dates, and `leaflet` for interactive maps.
+
+### Accesing the Dataport Database
+
+To connect to the Dataport database, you will need to enter the appropriate connection variables defined below:
+
+#### Connection Variables
+
+- Name: Dataport Database
+
+- Host: dataport.cloud
+
+- Port: 5434
+
+- Service: [leave blank]
+
+- Maintenance DB: postgres
+
+- Username: [log into the website]
+
+- Password: [log into the website]
+
+Once we have this information we can start telling R how to connect to the database.
+
+```{r, eval=FALSE}
+con <- dbConnect(RPostgreSQL::PostgreSQL(), 
+                 host="dataport.cloud", 
+                 port="5434", 
+                 UID = rstudioapi::askForPassword("Database user"),
+                 PWD = rstudioapi::askForPassword("Database password"), 
+                 dbname="postgres")
+```
+
+```{r, include=FALSE}
+con <- dbConnect(RPostgreSQL::PostgreSQL(), host="dataport.cloud", port="5434", user="Vr5SmRn96HF5", password="HCzasJwPfMjr", dbname="postgres")
+```
+
+Once we have the connection established with `con` we can generate a source object `src` with the `src_dbi` function so we can use that connection.
+
+```{r}
+src <- src_dbi(con, auto_disconnect = TRUE)
+```
+
+
+Using `dbplyr` all data manipulation on SQL tables are lazy: i.e. they will not actually run the query or retrieve the data unless you ask for it. They all return a new `tbl_dbi` object. We can call information from the database with `tbl`.
+
+```{r}
+hours <- tbl(con, in_schema("university", "electricity_egauge_hours"))
+```
+
+But how can I know which tables are in the database? Let's look at the contents.
+
+```{r}
+dbListTables(con)
+```
+
+We have to remember that the **schema** we're interested in is **university**, so those are the only tables we can access from the database.[^2]
+
+[^2]: Check the dictionary in the Dataport website for the options.
+
+We can `glimpse` at the structure of our connection, source, and tables:
+
+```{r}
+glimpse(con)
+```
+
+```{r}
+glimpse(src)
+```
+
+
+```{r}
+glimpse(hours)
+```
+
+But for RMarkdown might be better to use the `()` or print commands.
+
+```{r}
+(hours)
+```
+
+We can also `tally` the contents of the tables:
+```{r}
+tally(hours)
+```
+
+Or count the number of entries by e_gauge and show the top 10
+```{r}
+hours %>% 
+  count(dataid) %>%
+  top_n(10)
+```
+## Visualizations using `dbplot`, and `ggplot2`
+
+We can also graph the data:
+```{r}
+hours %>% 
+  filter(dataid < 800) %>%
+  dbplot_bar(dataid)
+```
+`dbplot_bar` defaults to `tally()` of each value in a discrete variable.
+
+We can also pass a function that can be operated for each value in the `use` variable.
+
+```{r}
+hours %>% 
+  filter(dataid < 800) %>%
+  dbplot_bar(dataid, mean(use, na.rm = T))
+```
+
+And since this is a `ggplot2` object we can customize it a little bit more
+
+```{r}
+hours %>% 
+  filter(dataid < 800) %>%
+  dbplot_bar(dataid) +
+  labs(title = "eGauge Readings by User") +
+  theme_bw()
+```
+
+We can also use `dbplot_line` to get a line plot of a discrete variable. But this looks weird!
+
+```{r}
+hours %>%
+  dbplot_line(dataid, mean(use, na.rm = T))
+```
+
+Let's subset the table and use `dataid < 12000`
+
+```{r}
+hours %>%
+  filter(dataid < 12000) %>%
+  dbplot_line(dataid, mean(use, na.rm = T))
+```
+
+## Creating models inside the database with `modeldb` and `tidypredict`
+
+We can take out the missing values from our dataset, and since all the work is done in the server it takes basically no memory locally. Let's try with the missing values in one of the variables `bedroom1`.
+```{r}
+bedroom <- hours %>%
+  filter(!is.na(bedroom1)) 
+tally(bedroom)
+```
+
+<!-- ```{r} -->
+<!-- hours %>% -->
+<!--   select(contains("[123456]")) %>% -->
+<!--   summarise_all(funs(sum(is.na(.)))) -->
+<!-- ``` -->
+
+
+We can use `tidyeval` and `dplyr` to create a linear regression model in the database and output the results to R.
+
+```{r}
+hours %>%
+  select(c(use, air1, dishwasher1, disposal1, furnace1, grid, kitchen1, livingroom1, range1, refrigerator1)) %>%
+  linear_regression_db(y_var = use, auto_count = T)
+```
+
+But this doesn't tells us much, because total usage is dependent on the individual measurements of the appliances. Let's try using other tables to get more information.
+
+
+
+```{r}
+weather_db <- tbl(con, in_schema("university", "weather"))
+weather_db
+```
+```{r}
+tally(weather_db)
+```
+
+Let's subset our tables so we can get some insights into the data.
+
+```{r}
+hours_db <- hours %>%
+  select(dataid, localhour, use) %>%
+  group_by(localhour) %>%
+  summarise(avg_use = mean(use))
+hours_db
+```
+
+```{r}
+tally(hours_db)
+```
+
+```{r}
+weather_hours <- inner_join(weather_db, hours_db, by = "localhour")
+weather_hours
+```
+
+Let's try to see where the users live in the U.S. We can use `dbplot_raster` with longitude and latitude.
+
+```{r}
+weather_usage <- weather_hours %>%
+  dbplot_raster(longitude, latitude)
+weather_usage
+```
+
+This is not very clear, so we'll try to create a real map and not just a graph using `leaflet`. First we need to get the intersections of the rectangles to be able to map them.
+
+```{r}
+weather_rectangles <- weather_hours %>%
+  db_compute_raster2(longitude, latitude) 
+```
+```{r}
+weather_rectangles
+```
+
+```{r}
+leaflet() %>%
+  addTiles() %>%
+  addRectangles(
+    weather_rectangles$longitude,
+    weather_rectangles$latitude,
+    weather_rectangles$longitude_2,
+    weather_rectangles$latitude_2
+  )
+```
+
+
+When you're done fiddling with the database and have finally figured out what data works for your intended purposes just use `collect()` to create a local `tibble`.
+
+```{r}
+collected_weather <- weather_hours %>%
+  collect()
+```
+
+```{r}
+collected_weather
+```
+
+
+`tidypredict` can also run simple models inside the database. `tidypredict` is able to parse an R model object, such as:
+
+```{r}
+model <- lm(avg_use ~ temperature + humidity + apparent_temperature + pressure, data = weather_hours)
+```
+
+And then creates the SQL statement needed to calculate the fitted prediction:
+
+```{r}
+tidypredict_sql(model, dbplyr::simulate_mssql())
+```
+
+The following R models are currently supported. For more info please review the corresponding vignette:
+
+- [Linear Regression](http://tidypredict.netlify.com/articles/lm/) - `lm()`
+- [Generalized Linear Model](http://tidypredict.netlify.com/articles/glm/) - `glm()`
+- [Random Forest](http://tidypredict.netlify.com/articles/randomforest/) - `randomForest()`
+- [ranger](http://tidypredict.netlify.com/articles/ranger/) - `ranger()`
+
+There's more about `modeldb`, `tidypredict`, and databases in R in general in [Databases using R](https://db.rstudio.com).
