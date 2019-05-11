@@ -1,0 +1,301 @@
+---
+title: "Symbolic Computation in R"
+author: "Carlos Calvo Hernandez"
+date: "5/07/2019"
+output: 
+  html_document:
+    toc: TRUE
+    toc_float: TRUE
+---
+
+```{r setup, include=FALSE}
+# Use `sudo R CMD javareconf` and restart RStudio if the folder to the jdk is not found
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, cache = TRUE)
+```
+
+# Using `rSymPy` 
+
+We will start by using the `rSymPy` package that uses Python and Java. SymPy is a Python library and the R package connects to that library.
+
+## Installing SymPy
+
+SymPy can be installed on virtually any computer with Python 2.7 or above. SymPy does require *mpmath* Python library to be installed first. The recommended method of installation is through **Anaconda**, which includes *mpmath*, as well as several other useful libraries.
+
+### What is Anaconda?
+
+Anaconda is a free Python distribution from Continuum Analytics that includes *SymPy, Matplotlib, IPython, NumPy*, and many more useful packages for scientific computing. This is recommended because many nice features of *SymPy* are only enabled when certain libraries are installed.
+
+### First, installing Python through Anaconda
+
+Go to the [Anaconda Distribution](https://www.anaconda.com/distribution/) webpage and download the Python 3.7[^1] Graphical Installer version for your OS. Run the installer and follow the directions. Aaaaaaand... you're done! Really, that's it. You are now the proud owner of a fully functional Python distribution that can be accessed through the Anaconda software.
+
+[^1]: I recomend 3.7 over 2.7 since Python 2.x is losing official support starting 2021.
+
+### Finally, installing SymPy with *conda*
+
+Now that you have Anaconda, we need to make sure all libraries we need are installed. Go to a terminal window and type:
+
+> conda install mpmath
+
+If *mpmath* is already installed, just update it:
+
+> conda update mpmath
+
+Install *sympy*
+
+> conda install sympy
+
+That's it! Ready to use!
+
+## `rSymPy``
+
+Now install the R package and let's use it.
+
+```{r, eval=FALSE}
+install.packages("rSymPy")
+```
+
+```{r rsympy}
+library(rSymPy)
+```
+
+We can use the `var()` function to create a SymPy variable. And subsequently use that variable with any mathematical operators. 
+
+```{r}
+x <- Var("x")
+x+x
+```
+
+```{r}
+x*x/x
+```
+
+We can operate with multiple variables:
+
+```{r}
+y <- Var("x**3")
+x/y
+```
+
+We can also just use the generic function `sympy` to create the variables. `sympy` can be used to create expressions or variables.
+
+```{r}
+z <- "2.5*x**2"
+z + y
+```
+
+`sympy` also uses the method `evalf()` to evaluate a numerical expression into a floating point number:
+```{r}
+sympy("sqrt(8)")
+sympy("sqrt(8).evalf()")
+sympy("sqrt(8).evalf(50)")
+```
+
+The index `n` inside `evalf(n)` is the number of decimal places to be displayed
+```{r}
+sympy("pi.evalf(120)")
+```
+
+We can assign names to `sympy` expressions within the function:
+
+```{r}
+sympy("one = cos(1)**2 + sin(1)**2")
+sympy("(one - 1)")
+sympy("(one - 1).evalf()") # rounding errors from floating number arithmetics
+```
+
+When not interested in the floating number rounding errors we can use the option `chop=TRUE` in `evalf()`
+
+```{r}
+sympy("(one - 1).evalf(chop=True)")
+```
+
+`sympy` also handles equations with the method `Eq()`:
+
+```{r}
+sympy("Eq(x**2+2*x+1,(x+1)**2)")
+```
+
+```{r}
+sympy("a = x**2+2*x+1")
+sympy("b = (x+1)**2")
+```
+
+We can also symplify equations
+
+```{r}
+"0" == sympy("simplify(a-b)")
+```
+
+```{r}
+sympy("simplify((x**3 + x**2 - x - 1)/(x**2 + 2*x + 1))")
+```
+
+We can expand and factorize accordingly
+
+```{r}
+sympy("(x + 2)*(x - 3)")
+sympy("expand((x + 2)*(x - 3))")
+```
+```{r}
+sympy("factor(x**3 - x**2 + x - 1)")
+```
+
+`collect()` organizes equations around a given variable:
+
+```{r}
+y <- Var("y")
+z <- Var("z")
+sympy("collect(x*y + x - 3 + 2*x**2 - z*x**2 + x**3, x)")
+```
+
+```{r}
+sympy("(x*y**2 - 2*x*y*z + x*z**2 + y**2 - 2*y*z + z**2)/(x**2 - 1)")
+sympy("cancel((x*y**2 - 2*x*y*z + x*z**2 + y**2 - 2*y*z + z**2)/(x**2 - 1))")
+```
+
+```{r}
+sympy("expand_func(gamma(x + 3))")
+```
+
+We can create variables that have a persistent state, since objects in SymPy are immutable.
+
+```{r}
+sympy("y = x*x")
+```
+
+This persistent variable can then be used in other expression. E.g. in matrices.
+
+```{r}
+sympy("A = Matrix([[1,x], [y,1]])")
+sympy("A**2")
+```
+
+We can substitute variables with other variables or values.
+
+```{r}
+sympy("B = A.subs(x,1.1)")
+sympy("B**2")
+```
+
+```{r}
+# more replacement, a subexpression by another:
+sympy("expr = sin(2*x) + cos(2*x)")
+
+sympy("expr.subs(sin(2*x), 2*sin(x)*cos(x))")
+
+sympy("expr.subs(x,pi/2)")
+```
+
+There are matrix operations with `inv()` and `det()`
+
+```{r}
+a1 <- Var("a1")
+a2 <- Var("a2")
+a3 <- Var("a3")
+a4 <- Var("a4")
+
+A <- Matrix(List(a1, a2), List(a3, a4))
+#define inverse and determinant
+Inv <- function(x) Sym("(", x, ").inv()")
+Det <- function(x) Sym("(", x, ").det()")
+
+A
+```
+```{r}
+cat(A,"\n")
+```
+
+```{r}
+Inv(A)
+```
+
+```{r}
+Det(A)
+```
+
+Using the `exp()` function:
+
+```{r}
+Exp <- function(x) Sym("exp(", x, ")") 
+Exp(-x) * Exp(x)
+```
+
+Solve equations with `solve()``
+
+```{r}
+sympy("solve(x**2 - 2, x)")
+```
+
+Calculate limits with `limit()`
+
+```{r}
+sympy("limit(1/x, x, oo)")
+sympy("limit(1/x, x, 0)")
+```
+
+`integrate()` handles definite and indefinite integrals:
+
+```{r}
+sympy("integrate(exp(-x))")                   # indefinite integral
+```
+```{r}
+sympy("integrate(exp(-x*y),x)")               # indefinite integral
+```
+```{r}
+sympy("integrate(exp(-x), (x, 0, oo))")       # definite integral
+```
+
+
+Integration is possible in base R, but the syntax is not straightforward:
+
+```{r}
+integrate( function(x) exp(-x), 0, Inf)
+```
+
+`diff()` handles derivatives
+
+```{r}
+sympy("diff(sin(2*x), x, 1)")       # first derivative
+sympy("diff(sin(2*x), x, 2)")       # second derivative
+
+sympy("diff(sin(2*x), x, 3)")       # third  derivative
+
+
+sympy("diff(exp(x*y*z), x, z, 3)")  # d^4/dxdz^3
+```
+
+Differentiation is also possible in base R:
+
+```{r}
+D( expression(sin(2*x)), "x" )
+```
+
+`series()` handles all series
+
+```{r}
+sympy("(1/cos(x)).series(x, 0, 10)")  # taylor expansion
+
+sympy("exp(x).series(x, 0, 5)")       # taylor expansion
+
+sympy("exp(x).series(x, 0, 5).removeO()")
+```
+
+`eigenvals()` calculates the eigenvalues of a matrix:
+
+```{r}
+sympy("Matrix([[1, 2], [2, 2]]).eigenvals()")
+```
+
+And, finally, we can output everything directly to LaTex with `latex()`
+
+```{r}
+sympy("latex(Integral(cos(x)**2, (x, 0, pi)))")
+```
+
+This can be used within an RMarkdown document like this $\int_{0}^{\pi} \operatorname{cos}^{2}\left(x\right)\,dx = \frac{1}{2} \pi$
+
+## References
+
+1. `rSymPy` package reference manual: <http://cran.r-project.org/web/packages/rSymPy/rSymPy.pdf>
+2. SymPy Tutorials: <http://docs.sympy.org/latest/tutorial/>
